@@ -302,7 +302,37 @@ static OSStatus wkResampleRGB32(WKVTPixelTransferFunction transfer, VTPixelTrans
     return noErr;
 }
 
+static OSStatus wkTransferImage(VTPixelTransferSessionRef, CVPixelBufferRef, CVPixelBufferRef);
+
+// 10.9 reads an R'G'B' source's colour from a CG colour space or ICC profile only, and refuses one whose
+// colour is named by primaries and a transfer function alone (kVTInsufficientSourceColorDataErr). Such a
+// source carries the colour space those attachments describe for the transfer, and is left as it was.
+WK_SYSTEM_FN("CoreVideo", CFDictionaryRef, CVBufferGetAttachments, (CVBufferRef, CVAttachmentMode));
+WK_SYSTEM_FN("CoreVideo", void, CVBufferRemoveAttachment, (CVBufferRef, CFStringRef));
+
 WK_POLYFILL_REPLACES("VideoToolbox", OSStatus, VTPixelTransferSessionTransferImage, (VTPixelTransferSessionRef session, CVPixelBufferRef source, CVPixelBufferRef destination))
+{
+    OSType sourceFormat = source ? WK_SYSTEM(CVPixelBufferGetPixelFormatType)(source) : 0;
+    CGColorSpaceRef colorSpace = NULL;
+    if ((sourceFormat == kCVPixelFormatType_32ARGB || sourceFormat == kCVPixelFormatType_32BGRA)
+        && !WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CGColorSpace"), NULL)
+        && !WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVImageBufferICCProfile"), NULL)
+        && (WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVImageBufferColorPrimaries"), NULL)
+            || WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVImageBufferTransferFunction"), NULL))) {
+        CFDictionaryRef attachments = WK_SYSTEM(CVBufferGetAttachments)((CVBufferRef)source, kCVAttachmentMode_ShouldPropagate);
+        colorSpace = attachments ? CVImageBufferCreateColorSpaceFromAttachments(attachments) : NULL;
+        if (colorSpace)
+            WK_SYSTEM(CVBufferSetAttachment)((CVBufferRef)source, CFSTR("CGColorSpace"), colorSpace, kCVAttachmentMode_ShouldPropagate);
+    }
+    OSStatus status = wkTransferImage(session, source, destination);
+    if (colorSpace) {
+        WK_SYSTEM(CVBufferRemoveAttachment)((CVBufferRef)source, CFSTR("CGColorSpace"));
+        CGColorSpaceRelease(colorSpace);
+    }
+    return status;
+}
+
+static OSStatus wkTransferImage(VTPixelTransferSessionRef session, CVPixelBufferRef source, CVPixelBufferRef destination)
 {
     OSType sourceFormat = source ? WK_SYSTEM(CVPixelBufferGetPixelFormatType)(source) : 0;
     OSType destinationFormat = destination ? WK_SYSTEM(CVPixelBufferGetPixelFormatType)(destination) : 0;

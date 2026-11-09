@@ -35,14 +35,9 @@
 #include <wtf/RetainPtr.h>
 typedef struct CF_BRIDGED_TYPE(id) __CVBuffer* CVPixelBufferRef;
 typedef struct __CVPixelBufferPool* CVPixelBufferPoolRef;
-typedef struct _GstVideoInfo GstVideoInfo;
 #endif
 
 namespace WebCore {
-
-#if PLATFORM(COCOA)
-struct PlatformVideoColorSpace;
-#endif // AQUAWEBKIT: Cocoa pixel-buffer colour metadata.
 
 class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerVideoFrameConverter> {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerVideoFrameConverter);
@@ -58,10 +53,8 @@ public:
     [[nodiscard]] GRefPtr<GstSample> convert(const GRefPtr<GstSample>&, const GRefPtr<GstCaps>&);
 
 #if PLATFORM(COCOA)
-    // AQUAWEBKIT: packed RGB and planar YUV samples back Cocoa rendering and IPC.
-    RetainPtr<CVPixelBufferRef> pixelBufferFromSample(const GRefPtr<GstSample>&, PlatformVideoColorSpace);
-    // AQUAWEBKIT: video-range 4:2:2 frames for Mavericks' display layer, see VideoFrameGStreamerCocoa.mm.
-    RetainPtr<CVPixelBufferRef> displayLayerPixelBufferFromSample(const GRefPtr<GstSample>&, const GstVideoInfo&, PlatformVideoColorSpace);
+    // AQUAWEBKIT: IOSurface buffers for Cocoa rendering and IPC, from one pool per size and pixel format.
+    RetainPtr<CVPixelBufferRef> pooledPixelBuffer(IntSize, OSType);
 #endif
 
 private:
@@ -92,22 +85,41 @@ private:
     };
 
     Pipeline& ensurePipeline(GstCaps*);
+    // AQUAWEBKIT: a resource's last use, and whether its release timer is armed. A use arms the timer only
+    // when it is not; the timer releases the resource once it has been unused for the whole interval.
+    struct ReleaseSchedule {
+        MonotonicTime lastUse;
+        bool armed { false };
+        bool noteUse()
+        {
+            lastUse = MonotonicTime::now();
+            return !std::exchange(armed, true);
+        }
+        std::optional<Seconds> remainingBeforeRelease(Seconds interval)
+        {
+            auto idle = MonotonicTime::now() - lastUse;
+            if (idle < interval)
+                return interval - idle;
+            armed = false;
+            return std::nullopt;
+        }
+    };
+    ReleaseSchedule m_systemMemoryPipelineRelease WTF_GUARDED_BY_LOCK(m_lock); // AQUAWEBKIT: see ReleaseSchedule.
     void releaseUnusedSystemMemoryPipelineTimerFired();
 #if USE(GSTREAMER_GL)
     void releaseUnusedGLMemoryPipelineTimerFired();
     void releaseUnusedDMABufMemoryPipelineTimerFired();
+    ReleaseSchedule m_glMemoryPipelineRelease WTF_GUARDED_BY_LOCK(m_lock); // AQUAWEBKIT: see ReleaseSchedule.
+    ReleaseSchedule m_dmabufMemoryPipelineRelease WTF_GUARDED_BY_LOCK(m_lock); // AQUAWEBKIT: see ReleaseSchedule.
 #endif
 
 #if PLATFORM(COCOA)
-    // AQUAWEBKIT: frames reuse an IOSurface pool per size and pixel format; a pool unused for the
-    // pipeline release interval is dropped on the next lookup.
-    struct CVPixelBufferPoolEntry {
-        RetainPtr<CVPixelBufferPoolRef> pool;
-        MonotonicTime lastUse;
-    };
-    RetainPtr<CVPixelBufferRef> pooledPixelBuffer(IntSize, OSType); // AQUAWEBKIT: shared by the two conversions above.
+    // AQUAWEBKIT: the pools are released once none has served a buffer for the pipeline release interval.
+    void releaseUnusedPixelBufferPoolsTimerFired();
     Lock m_cvPixelBufferPoolLock;
-    HashMap<std::pair<uint64_t, uint32_t>, CVPixelBufferPoolEntry> m_cvPixelBufferPools WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
+    HashMap<std::pair<uint64_t, uint32_t>, RetainPtr<CVPixelBufferPoolRef>> m_cvPixelBufferPools WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
+    ReleaseSchedule m_cvPixelBufferPoolsRelease WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
+    std::unique_ptr<RunLoop::Timer> m_releaseUnusedPixelBufferPoolsTimer WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
 #endif
     std::unique_ptr<Pipeline> m_systemMemoryPipeline;
     std::unique_ptr<RunLoop::Timer> m_releaseUnusedSystemMemoryPipelineTimer;

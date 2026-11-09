@@ -167,14 +167,18 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
         */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
         if (!m_dmabufMemoryPipeline)
             m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
-        RunLoop::mainSingleton().dispatch([this] {
-            Locker locker { m_lock };
-            if (!m_dmabufMemoryPipeline)
-                return;
-            if (!m_releaseUnusedDMABufMemoryPipelineTimer)
-                m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedDMABufMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
-            m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-        });
+        if (m_dmabufMemoryPipelineRelease.noteUse()) {
+            RunLoop::mainSingleton().dispatch([this] {
+                Locker locker { m_lock };
+                if (!m_dmabufMemoryPipeline) {
+                    m_dmabufMemoryPipelineRelease.armed = false;
+                    return;
+                }
+                if (!m_releaseUnusedDMABufMemoryPipelineTimer)
+                    m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedDMABufMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
+                m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+            });
+        }
         return *m_dmabufMemoryPipeline;
     }
 
@@ -190,14 +194,18 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
         */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
         if (!m_glMemoryPipeline)
             m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
-        RunLoop::mainSingleton().dispatch([this] {
-            Locker locker { m_lock };
-            if (!m_glMemoryPipeline)
-                return;
-            if (!m_releaseUnusedGLMemoryPipelineTimer)
-                m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedGLMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
-            m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-        });
+        if (m_glMemoryPipelineRelease.noteUse()) {
+            RunLoop::mainSingleton().dispatch([this] {
+                Locker locker { m_lock };
+                if (!m_glMemoryPipeline) {
+                    m_glMemoryPipelineRelease.armed = false;
+                    return;
+                }
+                if (!m_releaseUnusedGLMemoryPipelineTimer)
+                    m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedGLMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
+                m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+            });
+        }
         return *m_glMemoryPipeline;
     }
 #else
@@ -215,14 +223,18 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
     */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
     if (!m_systemMemoryPipeline)
         m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
-    RunLoop::mainSingleton().dispatch([this] {
-        Locker locker { m_lock };
-        if (!m_systemMemoryPipeline)
-            return;
-        if (!m_releaseUnusedSystemMemoryPipelineTimer)
-            m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedSystemMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
-        m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-    });
+    if (m_systemMemoryPipelineRelease.noteUse()) {
+        RunLoop::mainSingleton().dispatch([this] {
+            Locker locker { m_lock };
+            if (!m_systemMemoryPipeline) {
+                m_systemMemoryPipelineRelease.armed = false;
+                return;
+            }
+            if (!m_releaseUnusedSystemMemoryPipelineTimer)
+                m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedSystemMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
+            m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+        });
+    }
     return *m_systemMemoryPipeline;
 }
 
@@ -267,6 +279,10 @@ IGNORE_WARNINGS_END
 void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 {
     Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
+    if (auto remaining = m_systemMemoryPipelineRelease.remainingBeforeRelease(s_releaseUnusedPipelinesTimerInterval)) { // AQUAWEBKIT: see ReleaseSchedule.
+        m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(*remaining);
+        return;
+    }
     m_systemMemoryPipeline = nullptr;
     m_releaseUnusedSystemMemoryPipelineTimer = nullptr;
 }
@@ -275,6 +291,10 @@ void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 void GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired()
 {
     Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
+    if (auto remaining = m_glMemoryPipelineRelease.remainingBeforeRelease(s_releaseUnusedPipelinesTimerInterval)) { // AQUAWEBKIT: see ReleaseSchedule.
+        m_releaseUnusedGLMemoryPipelineTimer->startOneShot(*remaining);
+        return;
+    }
     m_glMemoryPipeline = nullptr;
     m_releaseUnusedGLMemoryPipelineTimer = nullptr;
 }
@@ -282,6 +302,10 @@ void GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired()
 void GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired()
 {
     Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
+    if (auto remaining = m_dmabufMemoryPipelineRelease.remainingBeforeRelease(s_releaseUnusedPipelinesTimerInterval)) { // AQUAWEBKIT: see ReleaseSchedule.
+        m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(*remaining);
+        return;
+    }
     m_dmabufMemoryPipeline = nullptr;
     m_releaseUnusedDMABufMemoryPipelineTimer = nullptr;
 }

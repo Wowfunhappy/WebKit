@@ -188,6 +188,26 @@ int main(void)
             }
         }
     }
-    printf("PASS: %u RGB/metadata conversions with IOSurfaces, scaling, odd dimensions, full range and matching matrices; direct transfers, pass-through and independent copies\n", count);
+    // A source whose colour is named by primaries and a transfer function alone transfers into a fully
+    // described destination, and keeps its attachments as they were.
+    for (unsigned format = 0; format < 2; ++format) {
+        CVPixelBufferRef input = NULL, output = NULL;
+        assert(!CVPixelBufferCreate(NULL, 64, 48, format ? kCVPixelFormatType_32ARGB : kCVPixelFormatType_32BGRA, NULL, &input));
+        assert(!CVPixelBufferCreate(NULL, 64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, NULL, &output));
+        CVBufferSetAttachment(input, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+        CVBufferSetAttachment(input, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+        VTPixelTransferSessionRef session = NULL;
+        assert(!VTPixelTransferSessionCreate(NULL, &session));
+        assert(!VTSessionSetProperty(session, kVTPixelTransferPropertyKey_DestinationColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2));
+        assert(!VTSessionSetProperty(session, kVTPixelTransferPropertyKey_DestinationTransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2));
+        assert(!VTSessionSetProperty(session, kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2));
+        assert(!VTPixelTransferSessionTransferImage(session, input, output));
+        assert(!CVBufferGetAttachment(input, kCVImageBufferCGColorSpaceKey, NULL));
+        assert(CFEqual(CVBufferGetAttachment(input, kCVImageBufferColorPrimariesKey, NULL), kCVImageBufferColorPrimaries_ITU_R_709_2));
+        VTPixelTransferSessionInvalidate(session);
+        CFRelease(session); CFRelease(output); CFRelease(input);
+        ++count;
+    }
+    printf("PASS: %u RGB/metadata conversions with IOSurfaces, scaling, odd dimensions, full range and matching matrices; direct transfers, pass-through, independent copies and primaries-tagged sources\n", count);
     return 0;
 }

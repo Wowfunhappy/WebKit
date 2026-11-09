@@ -16,8 +16,10 @@
 #include "VideoFrameCV.h"
 #include "VideoLayerManagerObjC.h"
 #include <AVFoundation/AVSampleBufferDisplayLayer.h>
+#include <Accelerate/Accelerate.h>
 #include <CoreVideo/CVPixelBuffer.h>
 #include <QuartzCore/CALayer.h>
+#include <gst/video/video-converter.h>
 #include <gst/video/video-frame.h>
 #include <pal/cf/CoreMediaSoftLink.h>
 #include <wtf/Scope.h>
@@ -95,25 +97,39 @@ RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pooledPixelBuffer(IntS
     RetainPtr<CVPixelBufferPoolRef> pool;
     {
         Locker locker { m_cvPixelBufferPoolLock };
-        auto now = MonotonicTime::now();
-        m_cvPixelBufferPools.removeIf([&](auto& entry) {
-            return now - entry.value.lastUse > releaseUnusedPixelBufferPoolInterval;
-        });
         std::pair<uint64_t, uint32_t> key { (static_cast<uint64_t>(size.width()) << 32) | static_cast<uint32_t>(size.height()), pixelFormat };
         auto iterator = m_cvPixelBufferPools.find(key);
         if (iterator == m_cvPixelBufferPools.end()) {
             auto result = createIOSurfaceCVPixelBufferPool(size.width(), size.height(), pixelFormat);
             if (!result)
                 return nullptr;
-            iterator = m_cvPixelBufferPools.add(key, CVPixelBufferPoolEntry { WTF::move(*result), now }).iterator;
+            iterator = m_cvPixelBufferPools.add(key, WTF::move(*result)).iterator;
         }
-        iterator->value.lastUse = now;
-        pool = iterator->value.pool;
+        pool = iterator->value;
+        // As the conversion pipelines' release timers, this one lives on the main run loop.
+        if (m_cvPixelBufferPoolsRelease.noteUse()) {
+            RunLoop::mainSingleton().dispatch([this] {
+                Locker locker { m_cvPixelBufferPoolLock };
+                if (!m_releaseUnusedPixelBufferPoolsTimer)
+                    m_releaseUnusedPixelBufferPoolsTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedPixelBufferPoolsTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedPixelBufferPoolsTimerFired);
+                m_releaseUnusedPixelBufferPoolsTimer->startOneShot(releaseUnusedPixelBufferPoolInterval);
+            });
+        }
     }
     auto result = createCVPixelBufferFromPool(pool.get());
     if (!result)
         return nullptr;
     return WTF::move(*result);
+}
+
+void GStreamerVideoFrameConverter::releaseUnusedPixelBufferPoolsTimerFired()
+{
+    Locker locker { m_cvPixelBufferPoolLock };
+    if (auto remaining = m_cvPixelBufferPoolsRelease.remainingBeforeRelease(releaseUnusedPixelBufferPoolInterval)) {
+        m_releaseUnusedPixelBufferPoolsTimer->startOneShot(*remaining);
+        return;
+    }
+    m_cvPixelBufferPools.clear();
 }
 
 static bool sampleIsDirectlyConvertible(GstSample* sample, const GstVideoInfo& info, IntSize presentationSize)
@@ -122,51 +138,71 @@ static bool sampleIsDirectlyConvertible(GstSample* sample, const GstVideoInfo& i
         && presentationSize == IntSize { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
 }
 
-static void packRowAs422(const uint8_t* luma, const uint8_t* u, const uint8_t* v, size_t chromaStep, uint8_t* destination, int width)
-{
-    for (int x = 0; x < width; x += 2) {
-        auto chroma = x / 2 * chromaStep;
-        destination[2 * x] = u[chroma];
-        destination[2 * x + 1] = luma[x];
-        destination[2 * x + 2] = v[chroma];
-        destination[2 * x + 3] = luma[x + 1 < width ? x + 1 : x];
-    }
-}
-
-RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::displayLayerPixelBufferFromSample(const GRefPtr<GstSample>& sample, const GstVideoInfo& info, PlatformVideoColorSpace colorSpace)
+// Mavericks' AVSampleBufferDisplayLayer conforms every frame it is given to 32ARGB on the CPU
+// (VTPixelBufferConformer, attributes { PixelFormatType: 32 }) and passes a 32ARGB frame through, so
+// the presenter converts each frame once, with GStreamer's converter, into that format. The player owns
+// the converter, which serves one input format.
+static RetainPtr<CVPixelBufferRef> displayLayerPixelBuffer(const GRefPtr<GstSample>& sample, PlatformVideoColorSpace colorSpace, GUniquePtr<GstVideoConverter>& converter, GstVideoInfo& converterInput)
 {
     @autoreleasepool {
-        auto format = GST_VIDEO_INFO_FORMAT(&info);
-        IntSize size { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
-        auto pixelBuffer = pooledPixelBuffer(size, kCVPixelFormatType_422YpCbCr8);
+        GstVideoInfo input;
+        if (!gst_video_info_from_caps(&input, gst_sample_get_caps(sample.get())))
+            return nullptr;
+        auto width = GST_VIDEO_INFO_WIDTH(&input);
+        auto height = GST_VIDEO_INFO_HEIGHT(&input);
+        // The RGB result keeps the source's primaries and transfer function.
+        GstVideoInfo output;
+        gst_video_info_set_interlaced_format(&output, GST_VIDEO_FORMAT_ARGB, GST_VIDEO_INFO_INTERLACE_MODE(&input), width, height);
+        output.colorimetry = input.colorimetry;
+        output.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_RGB;
+        output.colorimetry.range = GST_VIDEO_COLOR_RANGE_0_255;
+        GST_VIDEO_INFO_PAR_N(&output) = GST_VIDEO_INFO_PAR_N(&input);
+        GST_VIDEO_INFO_PAR_D(&output) = GST_VIDEO_INFO_PAR_D(&input);
+        GST_VIDEO_INFO_FPS_N(&output) = GST_VIDEO_INFO_FPS_N(&input);
+        GST_VIDEO_INFO_FPS_D(&output) = GST_VIDEO_INFO_FPS_D(&input);
+        if (!converter || !gst_video_info_is_equal(&converterInput, &input)) {
+            converter.reset(gst_video_converter_new(&input, &output, nullptr));
+            converterInput = input;
+            if (!converter)
+                return nullptr;
+        }
+        auto pixelBuffer = GStreamerVideoFrameConverter::singleton().pooledPixelBuffer({ width, height }, kCVPixelFormatType_32ARGB);
         if (!pixelBuffer)
             return nullptr;
-        GstVideoFrame frame;
-        if (!gst_video_frame_map(&frame, &info, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
+        GstVideoFrame source;
+        if (!gst_video_frame_map(&source, &input, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
             return nullptr;
-        auto unmap = makeScopeExit([&] { gst_video_frame_unmap(&frame); });
+        auto unmapSource = makeScopeExit([&] { gst_video_frame_unmap(&source); });
         if (CVPixelBufferLockBaseAddress(pixelBuffer.get(), 0) != kCVReturnSuccess)
             return nullptr;
         auto unlock = makeScopeExit([pixelBuffer] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
-        auto* destination = static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(pixelBuffer.get()));
-        auto destinationStride = CVPixelBufferGetBytesPerRow(pixelBuffer.get());
-        auto plane = [&](unsigned index, int row) {
-            return static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, index)) + static_cast<ptrdiff_t>(row) * GST_VIDEO_FRAME_PLANE_STRIDE(&frame, index);
-        };
-        for (int y = 0; y < size.height(); ++y) {
-            auto* luma = plane(0, y);
-            auto* u = plane(1, y / 2);
-            const uint8_t* v = format == GST_VIDEO_FORMAT_NV12 ? u + 1 : plane(2, y / 2);
-            size_t chromaStep = format == GST_VIDEO_FORMAT_NV12 ? 2 : 1;
-            packRowAs422(luma, u, v, chromaStep, destination + y * destinationStride, size.width());
+        // The converter writes straight into the IOSurface, at CoreVideo's row stride.
+        auto* base = CVPixelBufferGetBaseAddress(pixelBuffer.get());
+        auto stride = CVPixelBufferGetBytesPerRow(pixelBuffer.get());
+        GstVideoInfo destinationInfo = output;
+        GST_VIDEO_INFO_PLANE_STRIDE(&destinationInfo, 0) = stride;
+        GST_VIDEO_INFO_PLANE_OFFSET(&destinationInfo, 0) = 0;
+        GST_VIDEO_INFO_SIZE(&destinationInfo) = stride * height;
+        auto destinationBuffer = adoptGRef(gst_buffer_new_wrapped_full(static_cast<GstMemoryFlags>(0), base, GST_VIDEO_INFO_SIZE(&destinationInfo), 0, GST_VIDEO_INFO_SIZE(&destinationInfo), nullptr, nullptr));
+        GstVideoFrame destination;
+        if (!gst_video_frame_map(&destination, &destinationInfo, destinationBuffer.get(), GST_MAP_WRITE))
+            return nullptr;
+        gst_video_converter_frame(converter.get(), &source, &destination);
+        gst_video_frame_unmap(&destination);
+        // GStreamer's alpha is straight; the display layer composites premultiplied 32ARGB.
+        if (GST_VIDEO_INFO_HAS_ALPHA(&input)) {
+            vImage_Buffer frame { base, static_cast<vImagePixelCount>(height), static_cast<vImagePixelCount>(width), stride };
+            vImagePremultiplyData_ARGB8888(&frame, &frame, kvImageNoFlags);
         }
+        colorSpace.matrix = std::nullopt;
+        colorSpace.fullRange = true;
         CVBufferRemoveAllAttachments(pixelBuffer.get());
         attachColorSpaceToPixelBuffer(colorSpace, pixelBuffer.get());
         return pixelBuffer;
     }
 }
 
-RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(const GRefPtr<GstSample>& sample, PlatformVideoColorSpace colorSpace)
+static RetainPtr<CVPixelBufferRef> pixelBufferFromSample(const GRefPtr<GstSample>& sample, PlatformVideoColorSpace colorSpace)
 {
     @autoreleasepool {
         GstVideoInfo info;
@@ -178,7 +214,7 @@ RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(
         OSType pixelFormat = format == GST_VIDEO_FORMAT_BGRA ? kCVPixelFormatType_32BGRA
             : colorSpace.fullRange.value_or(false) ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
         IntSize size { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
-        auto pixelBuffer = pooledPixelBuffer(size, pixelFormat);
+        auto pixelBuffer = GStreamerVideoFrameConverter::singleton().pooledPixelBuffer(size, pixelFormat);
         if (!pixelBuffer)
             return nullptr;
         GstVideoFrame frame;
@@ -235,7 +271,7 @@ CVPixelBufferRef VideoFrameGStreamer::pixelBuffer() const
         auto sample = directFormat && sampleIsDirectlyConvertible(m_sample.get(), m_info.info, presentationSize())
             ? m_sample : const_cast<VideoFrameGStreamer*>(this)->downloadSample(GST_VIDEO_FORMAT_BGRA);
         if (sample)
-            m_cvPixelBuffer = GStreamerVideoFrameConverter::singleton().pixelBufferFromSample(sample, colorSpace());
+            m_cvPixelBuffer = pixelBufferFromSample(sample, colorSpace());
     }
     return m_cvPixelBuffer.get();
 }
@@ -289,6 +325,7 @@ void MediaPlayerPrivateGStreamer::destroyVideoLayer()
     RefPtr<SampleBufferDisplayLayer> sampleBufferDisplayLayer;
     Locker locker { m_videoLayerLock };
     sampleBufferDisplayLayer = std::exchange(m_sampleBufferDisplayLayer, nullptr);
+    m_displayLayerConverter = nullptr;
 }
 
 // A failed layer stays failed, so the presenter replaces it.
@@ -363,12 +400,11 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
     if (!m_videoLayerPageIsVisible || m_inlineVideoOutputSuppressed)
         return;
     Ref frame = VideoFrameGStreamer::createWrappedSample(sample);
-    auto format = GST_VIDEO_INFO_FORMAT(&frame->info());
-    auto colorSpace = frame->colorSpace();
-    // Video-range 4:2:0 is repacked as 4:2:2 for the display layer.
-    bool packsAs422 = (format == GST_VIDEO_FORMAT_NV12 || format == GST_VIDEO_FORMAT_I420) && !colorSpace.fullRange.value_or(false)
-        && sampleIsDirectlyConvertible(sample.get(), frame->info(), frame->presentationSize());
-    RetainPtr pixelBuffer = packsAs422 ? GStreamerVideoFrameConverter::singleton().displayLayerPixelBufferFromSample(sample, frame->info(), colorSpace) : RetainPtr { static_cast<VideoFrame&>(frame.get()).pixelBuffer() };
+    if (!sampleIsDirectlyConvertible(sample.get(), frame->info(), frame->presentationSize()))
+        sample = frame->downloadSample(GST_VIDEO_FORMAT_ARGB);
+    if (!sample)
+        return;
+    RetainPtr pixelBuffer = displayLayerPixelBuffer(sample, frame->colorSpace(), m_displayLayerConverter, m_displayLayerConverterInput);
     if (!pixelBuffer)
         return;
     auto [mirrored, rotation] = videoFrameTransformation(orientation);

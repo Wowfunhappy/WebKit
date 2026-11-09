@@ -721,12 +721,7 @@ void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace& colorSpace, CV
     if (!pixelBuffer)
         return;
 
-    // AQUAWEBKIT: a producer's explicit profile remains authoritative without
-    // a colorimetry override. Full-range metadata alone does not replace that profile.
-    // CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey);
-    bool hasColorimetryOverride = colorSpace.primaries || colorSpace.transfer || colorSpace.matrix;
-    if (hasColorimetryOverride)
-        CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey);
+    CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey);
     if (colorSpace.primaries)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, convertToCMColorPrimaries(*colorSpace.primaries), kCVAttachmentMode_ShouldPropagate);
     if (colorSpace.transfer) {
@@ -738,18 +733,6 @@ void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace& colorSpace, CV
     }
     if (colorSpace.matrix)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, convertToCMYCbCRMatrix(*colorSpace.matrix), kCVAttachmentMode_ShouldPropagate);
-
-    // AQUAWEBKIT: 10.9's RGB-to-YCbCr transfer requires a CG profile.
-    // CoreVideo resolves raw ARGB/BGRA buffers' final color tags to that profile.
-    auto pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
-    if ((pixelFormat == kCVPixelFormatType_32ARGB || pixelFormat == kCVPixelFormatType_32BGRA)
-        && !CVBufferGetAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, nullptr)
-        && !CVBufferGetAttachment(pixelBuffer, kCVImageBufferICCProfileKey, nullptr)) {
-        if (RetainPtr attachments = CVBufferGetAttachments(pixelBuffer, kCVAttachmentMode_ShouldPropagate)) {
-            if (RetainPtr resolvedColorSpace = adoptCF(CVImageBufferCreateColorSpaceFromAttachments(attachments.get())))
-                CVBufferSetAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, resolvedColorSpace.get(), kCVAttachmentMode_ShouldPropagate);
-        }
-    }
 }
 
 PlatformVideoColorSpace computeVideoFrameColorSpace(CVPixelBufferRef pixelBuffer)

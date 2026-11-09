@@ -1931,3 +1931,6 @@ imported/w3c/web-platform-tests/webrtc/simulcast/setParameters-maxFramerate.http
 # the DONE readystatechange, after readyState is 4, so the test's abort() finds a finished request and no abort event
 # fires. A body that arrives in one read passes; a loaded machine splits it.
 http/tests/xmlhttprequest/onabort-response-getters.html [ Skip ]
+
+# Transparent VP9 plays through the GStreamer presenter, which hands the display layer premultiplied 32ARGB.
+media/video-with-alpha.html [ Pass ]

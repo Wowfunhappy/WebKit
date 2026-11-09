@@ -1,4 +1,5 @@
-// Color matching for packed RGB samples presented by Mavericks' AVSampleBufferDisplayLayer.
+// Color matching for the samples presented by Mavericks' AVSampleBufferDisplayLayer, which shows R'G'B'
+// and Y'CbCr samples without matching them to its colour space.
 #ifndef WK_AVF_DISPLAY_COLOR_H
 #define WK_AVF_DISPLAY_COLOR_H
 
@@ -6,6 +7,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/QuartzCore.h>
+#include "../shared/wk_ycbcr.h"
 
 @interface CALayer (WKAVFDisplayColorSpace)
 - (CGColorSpaceRef)_retainColorSpace CF_RETURNS_RETAINED;
@@ -31,21 +33,51 @@ static BOOL wkAVFRGBBitmapInfo(OSType type, CGBitmapInfo *info)
     }
 }
 
-static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMFormatDescriptionRef format)
+// The 8-bit Y'CbCr formats with horizontally halved chroma, as sample offsets in their planes.
+typedef struct {
+    OSType type;
+    bool fullRange;
+    unsigned lumaPlane, cbPlane, crPlane;
+    size_t lumaOffset, lumaStep, cbOffset, crOffset, chromaStep;
+    unsigned chromaRowShift;
+} WKAVFYCbCrLayout;
+
+static const WKAVFYCbCrLayout *wkAVFYCbCrLayout(OSType type)
 {
-    CGColorSpaceRef space = (CGColorSpaceRef)CVBufferGetAttachment(buffer, kCVImageBufferCGColorSpaceKey, NULL);
-    if (space)
-        return CGColorSpaceRetain(space);
-    // A format description can supply the colorimetry when its image has no overriding attachment.
-    CFDictionaryRef extensions = CMFormatDescriptionGetExtensions(format);
-    CFMutableDictionaryRef attributes = extensions ? CFDictionaryCreateMutableCopy(NULL, 0, extensions)
-        : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    NSDictionary *attachments = (NSDictionary *)CVBufferGetAttachments(buffer, kCVAttachmentMode_ShouldPropagate);
-    for (id key in attachments)
-        CFDictionarySetValue(attributes, key, [attachments objectForKey:key]);
-    space = CVImageBufferCreateColorSpaceFromAttachments(attributes);
-    CFRelease(attributes);
-    return space ?: CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    static const WKAVFYCbCrLayout layouts[] = {
+        { kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, false, 0, 1, 1, 0, 1, 0, 1, 2, 1 },
+        { kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, true, 0, 1, 1, 0, 1, 0, 1, 2, 1 },
+        { kCVPixelFormatType_420YpCbCr8Planar, false, 0, 1, 2, 0, 1, 0, 0, 1, 1 },
+        { kCVPixelFormatType_420YpCbCr8PlanarFullRange, true, 0, 1, 2, 0, 1, 0, 0, 1, 1 },
+        { kCVPixelFormatType_422YpCbCr8, false, 0, 0, 0, 1, 2, 0, 2, 4, 0 },
+        { kCVPixelFormatType_422YpCbCr8_yuvs, false, 0, 0, 0, 0, 2, 1, 3, 4, 0 },
+    };
+    for (size_t i = 0; i < sizeof(layouts) / sizeof(layouts[0]); ++i) {
+        if (layouts[i].type == type)
+            return &layouts[i];
+    }
+    return NULL;
+}
+
+static const uint8_t *wkAVFPlane(CVPixelBufferRef buffer, unsigned plane, size_t *stride)
+{
+    if (!CVPixelBufferIsPlanar(buffer)) {
+        *stride = CVPixelBufferGetBytesPerRow(buffer);
+        return CVPixelBufferGetBaseAddress(buffer);
+    }
+    *stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, plane);
+    return CVPixelBufferGetBaseAddressOfPlane(buffer, plane);
+}
+
+// The image's Y'CbCr matrix: its own, else its format description's, else the one VideoToolbox assumes for its size.
+static CFStringRef wkAVFYCbCrMatrix(CVPixelBufferRef buffer, CMFormatDescriptionRef format)
+{
+    CFTypeRef matrix = CVBufferGetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, NULL);
+    if (!matrix && format)
+        matrix = CMFormatDescriptionGetExtension(format, kCVImageBufferYCbCrMatrixKey);
+    if (matrix && CFGetTypeID(matrix) == CFStringGetTypeID() && wk_ycbcr_coefficients((CFStringRef)matrix, false))
+        return (CFStringRef)matrix;
+    return wk_ycbcr_default_matrix(CVPixelBufferGetWidth(buffer), CVPixelBufferGetHeight(buffer));
 }
 
 // The layer owns one transform and one size-specific pool. Samples retain their output buffers while
@@ -59,6 +91,10 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
     CVPixelBufferPoolRef _pool;
     size_t _width;
     size_t _height;
+    CFDictionaryRef _sourceColorAttachments;
+    CGColorSpaceRef _derivedSource;
+    uint8_t *_decoded;
+    size_t _decodedSize;
     NSInteger _status;
     NSError *_error;
 }
@@ -80,6 +116,10 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
         vImageConverter_Release(_converter);
     if (_pool)
         CVPixelBufferPoolRelease(_pool);
+    if (_sourceColorAttachments)
+        CFRelease(_sourceColorAttachments);
+    CGColorSpaceRelease(_derivedSource);
+    free(_decoded);
     [_error release];
     [super dealloc];
 }
@@ -157,6 +197,34 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
     return NULL;
 }
 
+// An image's own CG colour space, else the one its colour attachments describe, taken from the image and
+// then its format description. The description is a function of those values, so it is kept for the next
+// image that carries the same ones. An image that describes none is sRGB.
+- (CGColorSpaceRef)copySourceColorSpace:(CVPixelBufferRef)buffer format:(CMFormatDescriptionRef)format CF_RETURNS_RETAINED
+{
+    CGColorSpaceRef space = (CGColorSpaceRef)CVBufferGetAttachment(buffer, kCVImageBufferCGColorSpaceKey, NULL);
+    if (space)
+        return CGColorSpaceRetain(space);
+    CFStringRef keys[] = { kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey, kCVImageBufferGammaLevelKey, kCVImageBufferYCbCrMatrixKey, kCVImageBufferICCProfileKey };
+    CFMutableDictionaryRef colorAttachments = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+        CFTypeRef value = CVBufferGetAttachment(buffer, keys[i], NULL);
+        if (!value && format)
+            value = CMFormatDescriptionGetExtension(format, keys[i]);
+        if (value)
+            CFDictionarySetValue(colorAttachments, keys[i], value);
+    }
+    if (!_sourceColorAttachments || !CFEqual(colorAttachments, _sourceColorAttachments)) {
+        if (_sourceColorAttachments)
+            CFRelease(_sourceColorAttachments);
+        CGColorSpaceRelease(_derivedSource);
+        _sourceColorAttachments = CFRetain(colorAttachments);
+        _derivedSource = CVImageBufferCreateColorSpaceFromAttachments(colorAttachments) ?: CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    }
+    CFRelease(colorAttachments);
+    return CGColorSpaceRetain(_derivedSource);
+}
+
 - (CMSampleBufferRef)copySample:(CMSampleBufferRef)sample forLayer:(CALayer *)layer
 {
     CGColorSpaceRef destination = [layer _retainColorSpace];
@@ -174,16 +242,26 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
 - (CMSampleBufferRef)copySample:(CMSampleBufferRef)sample toColorSpace:(CGColorSpaceRef)destination failure:(NSInteger *)failure CF_RETURNS_RETAINED
 {
     CVPixelBufferRef input = CMSampleBufferGetImageBuffer(sample);
-    CGBitmapInfo bitmapInfo;
-    if (!input || !CMSampleBufferDataIsReady(sample) || !wkAVFRGBBitmapInfo(CVPixelBufferGetPixelFormatType(input), &bitmapInfo))
+    CGBitmapInfo bitmapInfo = 0;
+    const WKAVFYCbCrLayout *ycbcr = NULL;
+    if (!input || !CMSampleBufferDataIsReady(sample))
         return (CMSampleBufferRef)CFRetain(sample);
+    if (!wkAVFRGBBitmapInfo(CVPixelBufferGetPixelFormatType(input), &bitmapInfo)) {
+        ycbcr = wkAVFYCbCrLayout(CVPixelBufferGetPixelFormatType(input));
+        if (!ycbcr)
+            return (CMSampleBufferRef)CFRetain(sample);
+        // Y'CbCr decodes into opaque 32ARGB, which is then matched.
+        bitmapInfo = kCGBitmapByteOrder32Big | kCGImageAlphaNoneSkipFirst;
+    }
 
-    CGColorSpaceRef source = wkAVFCopyImageColorSpace(input, CMSampleBufferGetFormatDescription(sample));
-    if (!source || !destination || CFEqual(source, destination)) {
+    CMFormatDescriptionRef sampleFormat = CMSampleBufferGetFormatDescription(sample);
+    CGColorSpaceRef source = [self copySourceColorSpace:input format:sampleFormat];
+    bool matches = source && destination && !CFEqual(source, destination);
+    if (!destination || (!ycbcr && !matches)) {
         CGColorSpaceRelease(source);
         return (CMSampleBufferRef)CFRetain(sample);
     }
-    if (!_converter || bitmapInfo != _bitmapInfo || !CFEqual(source, _source) || !CFEqual(destination, _destination)) {
+    if (matches && (!_converter || bitmapInfo != _bitmapInfo || !CFEqual(source, _source) || !CFEqual(destination, _destination))) {
         if (_converter)
             vImageConverter_Release(_converter);
         CGColorSpaceRelease(_source);
@@ -195,13 +273,21 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
         _destinationProfile = CGColorSpaceCopyICCProfile(destination);
         _bitmapInfo = bitmapInfo;
         vImage_CGImageFormat from = { 8, 32, source, bitmapInfo, 0, NULL, kCGRenderingIntentDefault };
-        vImage_CGImageFormat to = { 8, 32, destination, kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst, 0, NULL, kCGRenderingIntentDefault };
+        // The output is 32ARGB, the format Mavericks' layer conforms every frame to before display.
+        vImage_CGImageFormat to = { 8, 32, destination, kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedFirst, 0, NULL, kCGRenderingIntentDefault };
         vImage_Error error;
         _converter = vImageConverter_CreateWithCGImageFormat(&from, &to, NULL, kvImageNoFlags, &error);
         if (!_converter) {
             CGColorSpaceRelease(source);
             return [self fail:error failure:failure];
         }
+    }
+    if (!matches && (!_destination || !CFEqual(destination, _destination))) {
+        CGColorSpaceRelease(_destination);
+        _destination = CGColorSpaceRetain(destination);
+        if (_destinationProfile)
+            CFRelease(_destinationProfile);
+        _destinationProfile = CGColorSpaceCopyICCProfile(destination);
     }
     CGColorSpaceRelease(source);
 
@@ -212,7 +298,7 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
         _pool = NULL;
         _width = width;
         _height = height;
-        NSDictionary *attributes = @{ (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+        NSDictionary *attributes = @{ (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32ARGB),
             (id)kCVPixelBufferWidthKey: @(width), (id)kCVPixelBufferHeightKey: @(height),
             (id)kCVPixelBufferIOSurfacePropertiesKey: @{} };
         CVReturn status = CVPixelBufferPoolCreate(NULL, NULL, (CFDictionaryRef)attributes, &_pool);
@@ -236,7 +322,30 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
     }
     vImage_Buffer from = { CVPixelBufferGetBaseAddress(input), height, width, CVPixelBufferGetBytesPerRow(input) };
     vImage_Buffer to = { CVPixelBufferGetBaseAddress(output), height, width, CVPixelBufferGetBytesPerRow(output) };
-    vImage_Error error = vImageConvert_AnyToAny(_converter, &from, &to, NULL, kvImageNoFlags);
+    vImage_Error error = kvImageNoError;
+    if (ycbcr) {
+        // Decoded straight into the output when no match follows, else into a frame the match reads.
+        if (matches && _decodedSize < width * height * 4) {
+            free(_decoded);
+            _decodedSize = width * height * 4;
+            _decoded = malloc(_decodedSize);
+        }
+        vImage_Buffer decoded = matches ? (vImage_Buffer) { _decoded, height, width, width * 4 } : to;
+        int32_t inverse[9];
+        size_t lumaStride, cbStride, crStride;
+        const uint8_t *luma = wkAVFPlane(input, ycbcr->lumaPlane, &lumaStride);
+        const uint8_t *cb = wkAVFPlane(input, ycbcr->cbPlane, &cbStride);
+        const uint8_t *cr = wkAVFPlane(input, ycbcr->crPlane, &crStride);
+        if (!decoded.data || !luma || !cb || !cr || !wk_ycbcr_inverse_coefficients(wkAVFYCbCrMatrix(input, sampleFormat), ycbcr->fullRange, inverse))
+            error = kvImageInternalError;
+        else {
+            wk_ycbcr_convert_to_argb(luma + ycbcr->lumaOffset, lumaStride, ycbcr->lumaStep, cb + ycbcr->cbOffset, cr + ycbcr->crOffset,
+                cbStride, ycbcr->chromaStep, ycbcr->chromaRowShift, decoded.data, decoded.rowBytes, width, height, inverse, ycbcr->fullRange);
+            if (matches)
+                error = vImageConvert_AnyToAny(_converter, &decoded, &to, NULL, kvImageNoFlags);
+        }
+    } else
+        error = vImageConvert_AnyToAny(_converter, &from, &to, NULL, kvImageNoFlags);
     CVPixelBufferUnlockBaseAddress(output, 0);
     CVPixelBufferUnlockBaseAddress(input, kCVPixelBufferLock_ReadOnly);
     if (error) {
@@ -277,7 +386,7 @@ static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
         [merged addEntriesFromDictionary:(NSDictionary *)CMFormatDescriptionGetExtensions(format)];
         CFRelease(format);
         format = NULL;
-        sampleStatus = CMVideoFormatDescriptionCreate(NULL, kCVPixelFormatType_32BGRA, (int32_t)width, (int32_t)height,
+        sampleStatus = CMVideoFormatDescriptionCreate(NULL, kCVPixelFormatType_32ARGB, (int32_t)width, (int32_t)height,
             (CFDictionaryRef)merged, &format);
     }
     if (!sampleStatus)

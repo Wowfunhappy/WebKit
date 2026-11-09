@@ -694,7 +694,7 @@ private:
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
 #elif PLATFORM(COCOA)
-    // AQUAWEBKIT: the MediaStream Cocoa presenter and its bounds observer.
+    // AQUAWEBKIT: the Cocoa presenter: its sample-buffer display layer, video layer manager and bounds observer.
     Lock m_videoLayerLock;
     RefPtr<SampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
@@ -703,6 +703,8 @@ private:
     bool m_inlineVideoOutputSuppressed { false }; // AQUAWEBKIT: guarded by m_videoLayerLock.
     MediaPlayerAudioOutputSuppression m_inlineAudioOutput; // AQUAWEBKIT: suppression survives pipeline teardown and recreation.
     bool m_videoLayerPageIsVisible { false }; // AQUAWEBKIT: see setPageIsVisible(); guarded by m_videoLayerLock.
+    GUniquePtr<GstVideoConverter> m_displayLayerConverter WTF_GUARDED_BY_LOCK(m_videoLayerLock); // AQUAWEBKIT: see pushSampleToVideoLayer().
+    GstVideoInfo m_displayLayerConverterInput WTF_GUARDED_BY_LOCK(m_videoLayerLock) { }; // AQUAWEBKIT: the input m_displayLayerConverter was built for.
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the
