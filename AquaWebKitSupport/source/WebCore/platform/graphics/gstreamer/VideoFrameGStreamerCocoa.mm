@@ -21,6 +21,7 @@
 #include <QuartzCore/CALayer.h>
 #include <gst/video/video-converter.h>
 #include <gst/video/video-frame.h>
+#include <pal/avfoundation/MediaTimeAVFoundation.h>
 #include <pal/cf/CoreMediaSoftLink.h>
 #include <wtf/Scope.h>
 
@@ -292,13 +293,13 @@ void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
     // GstBaseSink delivers preroll and clock-scheduled frames, including after pause/seek.
     sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
     sampleBufferDisplayLayer->initialize(false, { }, m_shouldMaintainAspectRatio, [](bool) { });
-    // Frames are displayed immediately, so the control timebase stays stopped; Mavericks' display
-    // layer polls at the display refresh rate while its timebase runs.
+    // The control timebase runs on the host clock while frames are presented and stops otherwise
+    // (updateVideoLayerTimebaseRate()); Mavericks' display layer polls at the display refresh rate while
+    // its timebase runs.
     CMTimebaseRef timebase = nullptr;
-    if (PAL::CMTimebaseCreateWithSourceClock(kCFAllocatorDefault, PAL::CMClockGetHostTimeClock(), &timebase) == noErr) {
-        PAL::CMTimebaseSetRate(timebase, 0);
-        [(AVSampleBufferDisplayLayer *)sampleBufferDisplayLayer->displayLayer() setControlTimebase:adoptCF(timebase).get()];
-    }
+    PAL::CMTimebaseCreateWithSourceClock(kCFAllocatorDefault, PAL::CMClockGetHostTimeClock(), &timebase);
+    RetainPtr controlTimebase = adoptCF(timebase);
+    [(AVSampleBufferDisplayLayer *)sampleBufferDisplayLayer->displayLayer() setControlTimebase:controlTimebase.get()];
     m_videoLayerManager->setVideoLayer(sampleBufferDisplayLayer->rootLayer(), { });
     m_videoLayerBoundsObserver = adoptNS([[WebRootSampleBufferBoundsChangeListener alloc] initWithCallback:[weakThis = ThreadSafeWeakPtr { *this }] {
         if (RefPtr self = weakThis.get())
@@ -307,6 +308,30 @@ void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
     [m_videoLayerBoundsObserver begin:sampleBufferDisplayLayer->rootLayer()];
     Locker locker { m_videoLayerLock };
     m_sampleBufferDisplayLayer = WTF::move(sampleBufferDisplayLayer);
+    m_videoLayerTimebase = WTF::move(controlTimebase);
+    setVideoLayerTimebaseRate();
+}
+
+// Presented frames are stamped with the host clock's time (pushSampleToVideoLayer()), and while frames are
+// presented the control timebase follows that clock, as a synchronizer's timebase follows playback.
+// Mavericks' image queue shows a frame by its timebase while the render server is not taking frames from it.
+void MediaPlayerPrivateGStreamer::updateVideoLayerTimebaseRate(bool pipelineIsPlaying)
+{
+    Locker locker { m_videoLayerLock };
+    m_videoLayerPipelineIsPlaying = pipelineIsPlaying;
+    setVideoLayerTimebaseRate();
+}
+
+void MediaPlayerPrivateGStreamer::setVideoLayerTimebaseRate()
+{
+    if (!m_videoLayerTimebase)
+        return;
+    if (!m_videoLayerPipelineIsPlaying || !m_videoLayerPageIsVisible || m_inlineVideoOutputSuppressed) {
+        PAL::CMTimebaseSetRate(m_videoLayerTimebase.get(), 0);
+        return;
+    }
+    PAL::CMTimebaseSetTime(m_videoLayerTimebase.get(), PAL::toCMTime(MediaTime::createWithDouble(MonotonicTime::now().secondsSinceEpoch().value())));
+    PAL::CMTimebaseSetRate(m_videoLayerTimebase.get(), 1);
 }
 
 void MediaPlayerPrivateGStreamer::setShouldMaintainAspectRatio(bool shouldMaintainAspectRatio)
@@ -325,6 +350,7 @@ void MediaPlayerPrivateGStreamer::destroyVideoLayer()
     RefPtr<SampleBufferDisplayLayer> sampleBufferDisplayLayer;
     Locker locker { m_videoLayerLock };
     sampleBufferDisplayLayer = std::exchange(m_sampleBufferDisplayLayer, nullptr);
+    m_videoLayerTimebase = nullptr;
     m_displayLayerConverter = nullptr;
 }
 
@@ -349,9 +375,9 @@ PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
     return m_videoLayerManager->videoInlineLayer();
 }
 
-// A hidden page's player enqueues no frames, as MediaPlayerPrivateMediaStreamAVFObjC enqueues none:
-// Mavericks' display layer holds every frame it is given until it is displayed. The layer is flushed
-// as the page's visibility changes, and shows the current frame again once the page is visible.
+// A hidden page's player enqueues no frames, as MediaPlayerPrivateMediaStreamAVFObjC enqueues none.
+// The layer is flushed as the page's visibility changes, and shows the current frame again once the
+// page is visible.
 void MediaPlayerPrivateGStreamer::setPageIsVisible(bool visible)
 {
     m_pageIsVisible = visible;
@@ -360,6 +386,7 @@ void MediaPlayerPrivateGStreamer::setPageIsVisible(bool visible)
         if (m_videoLayerPageIsVisible == visible)
             return;
         m_videoLayerPageIsVisible = visible;
+        setVideoLayerTimebaseRate();
         if (m_sampleBufferDisplayLayer)
             m_sampleBufferDisplayLayer->flush();
     }
@@ -374,6 +401,7 @@ void MediaPlayerPrivateGStreamer::setInlineOutputSuppressed(bool suppressed)
         Locker locker { m_videoLayerLock };
         if (std::exchange(m_inlineVideoOutputSuppressed, suppressed) == suppressed)
             return;
+        setVideoLayerTimebaseRate();
         if (m_sampleBufferDisplayLayer)
             m_sampleBufferDisplayLayer->flush();
     }

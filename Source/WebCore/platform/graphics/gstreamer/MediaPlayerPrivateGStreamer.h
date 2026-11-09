@@ -91,6 +91,7 @@ typedef struct _GstStreamVolume GstStreamVolume;
 typedef struct _GstVideoInfo GstVideoInfo;
 
 OBJC_CLASS WebRootSampleBufferBoundsChangeListener; // AQUAWEBKIT: shared Cocoa bounds observer.
+typedef struct OpaqueCMTimebase* CMTimebaseRef; // AQUAWEBKIT: the Cocoa presenter's control timebase.
 
 namespace WebCore {
 
@@ -177,6 +178,8 @@ public:
 #if PLATFORM(COCOA) // AQUAWEBKIT: the Cocoa presenter shows no frames while the page is hidden.
     void setPageIsVisible(bool) final;
     void setInlineOutputSuppressed(bool); // AQUAWEBKIT: external presentation suppresses inline video and physical audio.
+    void updateVideoLayerTimebaseRate(bool pipelineIsPlaying); // AQUAWEBKIT: the control timebase runs while frames are presented.
+    void setVideoLayerTimebaseRate() WTF_REQUIRES_LOCK(m_videoLayerLock); // AQUAWEBKIT: see updateVideoLayerTimebaseRate().
 #else
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
 #endif // AQUAWEBKIT: closes the PLATFORM(COCOA) branch above.
@@ -699,10 +702,12 @@ private:
     RefPtr<SampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
+    RetainPtr<CMTimebaseRef> m_videoLayerTimebase WTF_GUARDED_BY_LOCK(m_videoLayerLock); // AQUAWEBKIT: see updateVideoLayerTimebaseRate().
     bool m_shouldMaintainAspectRatio { true }; // AQUAWEBKIT: see setShouldMaintainAspectRatio().
     bool m_inlineVideoOutputSuppressed { false }; // AQUAWEBKIT: guarded by m_videoLayerLock.
     MediaPlayerAudioOutputSuppression m_inlineAudioOutput; // AQUAWEBKIT: suppression survives pipeline teardown and recreation.
     bool m_videoLayerPageIsVisible { false }; // AQUAWEBKIT: see setPageIsVisible(); guarded by m_videoLayerLock.
+    bool m_videoLayerPipelineIsPlaying WTF_GUARDED_BY_LOCK(m_videoLayerLock) { false }; // AQUAWEBKIT: see updateVideoLayerTimebaseRate().
     GUniquePtr<GstVideoConverter> m_displayLayerConverter WTF_GUARDED_BY_LOCK(m_videoLayerLock); // AQUAWEBKIT: see pushSampleToVideoLayer().
     GstVideoInfo m_displayLayerConverterInput WTF_GUARDED_BY_LOCK(m_videoLayerLock) { }; // AQUAWEBKIT: the input m_displayLayerConverter was built for.
 #endif

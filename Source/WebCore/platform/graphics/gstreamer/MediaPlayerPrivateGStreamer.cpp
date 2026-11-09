@@ -284,6 +284,9 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
     if (m_pipeline) {
         unregisterPipeline(m_originalPipelineName);
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
+#if PLATFORM(COCOA) // AQUAWEBKIT: the bus watch goes below, before the NULL transition's state messages are handled.
+        updateVideoLayerTimebaseRate(false);
+#endif
 
         GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
         gst_bus_disable_sync_message_emission(bus.get());
@@ -2631,6 +2634,9 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
             break;
 
         GST_DEBUG_OBJECT(pipeline(), "Changed state from %s to %s", gst_state_get_name(currentState), gst_state_get_name(newState));
+#if PLATFORM(COCOA) // AQUAWEBKIT: the Cocoa presenter's control timebase follows the pipeline.
+        updateVideoLayerTimebaseRate(newState == GST_STATE_PLAYING);
+#endif
 
         /* AQUAWEBKIT: pending track selection reads the pipeline state refreshed by updateStates().
         if (!m_isLegacyPlaybin && currentState == GST_STATE_PAUSED && newState == GST_STATE_PLAYING)
