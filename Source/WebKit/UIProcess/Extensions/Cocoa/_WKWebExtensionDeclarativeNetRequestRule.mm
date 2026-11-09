@@ -810,6 +810,10 @@ static BOOL isArrayOfRequestMethodsValid(NSArray<NSString *> *requestMethods)
     NSArray *excludedRequestMethods = _condition[declarativeNetRequestRuleConditionExcludedRequestMethodsKey];
 
     // We also have to create one ignore-following-rules rule per excluded request domain and excluded request method...
+    // AQUAWEBKIT: a rule acts on neither an excluded request domain nor an excluded request method, so each gets
+    // ignore-following-rules rules of its own. One for an excluded domain covers the rule's request methods, one
+    // trigger per method, since a trigger's request-method is a single method.
+    /*
     if (excludedRequestDomains) {
         for (NSString *excludedRequestDomain in excludedRequestDomains) {
             NSDictionary *modifiedConditionsForURLFilter = createModifiedConditionsForURLFilter(_condition, excludedRequestDomain);
@@ -821,6 +825,22 @@ static BOOL isArrayOfRequestMethodsValid(NSArray<NSString *> *requestMethods)
                 [convertedRules addObjectsFromArray:[self _convertRulesWithModifiedCondition:modifiedConditionsForURLFilter webKitActionType:@"ignore-following-rules" chromeActionType:chromeActionType includeIdentifier:NO]];
         }
     } else if (excludedRequestMethods && !isRuleForAllowAllRequests) {
+        for (NSString *excludedRequestMethod in excludedRequestMethods)
+            [convertedRules addObjectsFromArray:[self _convertRulesWithModifiedCondition:createModifiedConditionsForRequestMethod(_condition, excludedRequestMethod) webKitActionType:@"ignore-following-rules" chromeActionType:chromeActionType includeIdentifier:NO]];
+    }
+    */ // AQUAWEBKIT: closes the commented-out translation; the marked translation follows.
+    if (excludedRequestDomains) {
+        for (NSString *excludedRequestDomain in excludedRequestDomains) {
+            NSDictionary *modifiedConditionsForURLFilter = createModifiedConditionsForURLFilter(_condition, excludedRequestDomain);
+
+            if (requestMethods && !isRuleForAllowAllRequests) {
+                for (NSString *requestMethod in requestMethods)
+                    [convertedRules addObjectsFromArray:[self _convertRulesWithModifiedCondition:createModifiedConditionsForRequestMethod(modifiedConditionsForURLFilter, requestMethod) webKitActionType:@"ignore-following-rules" chromeActionType:chromeActionType includeIdentifier:NO]];
+            } else
+                [convertedRules addObjectsFromArray:[self _convertRulesWithModifiedCondition:modifiedConditionsForURLFilter webKitActionType:@"ignore-following-rules" chromeActionType:chromeActionType includeIdentifier:NO]];
+        }
+    }
+    if (excludedRequestMethods && !isRuleForAllowAllRequests) {
         for (NSString *excludedRequestMethod in excludedRequestMethods)
             [convertedRules addObjectsFromArray:[self _convertRulesWithModifiedCondition:createModifiedConditionsForRequestMethod(_condition, excludedRequestMethod) webKitActionType:@"ignore-following-rules" chromeActionType:chromeActionType includeIdentifier:NO]];
     }
