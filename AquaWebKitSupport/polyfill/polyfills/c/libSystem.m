@@ -1,6 +1,7 @@
 // libSystem: entry points and constants modern WebKit references that 10.9's libSystem does not
 // export -- libc, dyld, xpc, dispatch, os_log / os_signpost / os_variant, pthread,
 // mach, voucher, sandbox, os_state and CommonCrypto.
+#define __STDC_WANT_LIB_EXT1__ 1
 #include "wk_polyfill.h"
 #include "wk_audit_token.h"
 #include "wk_symbols.h"
@@ -1186,25 +1187,37 @@ WK_POLYFILL_ABSENT(NULL, char *, sandbox_extension_issue_iokit_registry_entry_cl
 // CCCryptorGCM (the deprecated but 10.9-present one-shot GCM) is SPI; forward-declare it.
 extern CCCryptorStatus CCCryptorGCM(CCOperation op, CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, void *tag, size_t *tagLength);
 
-// One-shot AES-GCM decrypt-and-verify. CCCryptorGCM decrypts and computes the authentication tag over
-// the data; compare it to the caller's expected tag in constant time and report kCCDecodeError on
-// mismatch (the authenticated-decrypt contract: a forged/wrong tag fails rather than returning
-// plaintext — the caller treats any non-success as decryption failure).
+// One-shot AES-GCM decrypt-and-verify, with CommonCryptorGCM.c's validate_gcm_params: AES with a 16, 24
+// or 32-byte key, an IV of at least 12 bytes, a tag of 8 to 16 bytes. CCCryptorGCM decrypts and computes
+// the tag; a tag that does not match in constant time clears dataOut and reports kCCUnspecifiedError, the
+// translation of corecrypto's CCERR_INTEGRITY, as every failure other than kCCParamError translates.
 WK_POLYFILL_ABSENT(NULL, CCCryptorStatus, CCCryptorGCMOneshotDecrypt,
     (CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, const void *tagIn, size_t tagLength))
 {
+    if (alg != kCCAlgorithmAES)
+        return kCCParamError;
+    if (keyLength != kCCKeySizeAES128 && keyLength != kCCKeySizeAES192 && keyLength != kCCKeySizeAES256)
+        return kCCKeySizeError;
     unsigned char computedTag[16];
-    if (tagLength > sizeof(computedTag))
+    if (tagLength < 8 || tagLength > sizeof(computedTag) || ivLen < 12)
+        return kCCParamError;
+    if (!key || !iv || !tagIn || (dataInLength && !dataOut))
         return kCCParamError;
     size_t computedTagLen = tagLength;
     CCCryptorStatus rv = CCCryptorGCM(kCCDecrypt, alg, key, keyLength, iv, ivLen, aData, aDataLen, dataIn, dataInLength, dataOut, computedTag, &computedTagLen);
-    if (rv != kCCSuccess)
-        return rv;
-    const unsigned char *expected = (const unsigned char *)tagIn;
-    unsigned char diff = 0;
-    for (size_t i = 0; i < tagLength; ++i)
-        diff |= (unsigned char)(computedTag[i] ^ expected[i]);
-    return diff ? kCCDecodeError : kCCSuccess;
+    if (rv == kCCSuccess) {
+        const unsigned char *expected = (const unsigned char *)tagIn;
+        unsigned char diff = 0;
+        for (size_t i = 0; i < tagLength; ++i)
+            diff |= (unsigned char)(computedTag[i] ^ expected[i]);
+        if (diff)
+            rv = kCCUnspecifiedError;
+    } else if (rv != kCCParamError)
+        rv = kCCUnspecifiedError;
+    if (rv != kCCSuccess && dataInLength)
+        memset_s(dataOut, dataInLength, 0, dataInLength);
+    memset_s(computedTag, sizeof(computedTag), 0, sizeof(computedTag));
+    return rv;
 }
 
 // CCKDFParametersRef is `struct CCKDFParameters *` (opaque to callers); complete it here to carry the
