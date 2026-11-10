@@ -1009,8 +1009,6 @@ public:
     void loadAlternateHTML(Ref<WebCore::DataSegment>&&, const String& encoding, const URL& baseURL, const URL& unreachableURL, RefPtr<API::WebsitePolicies>);
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
-    // AQUAWEBKIT: fetch image bytes through the web process, for the favicon store (#112).
-    void loadImageData(WebCore::ResourceRequest&&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     // AQUAWEBKIT: the URL of the request that STARTED the committed main-frame load, before any
     // redirect — the UI-process copy of DocumentLoader::originalRequest(), which WebKit 537's
     // IconController::commitToDatabase reads through FrameLoader::initialRequest(). The favicon store
@@ -1020,6 +1018,8 @@ public:
     void getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void getImageMetadata(Vector<uint8_t>&& data, CompletionHandler<void(Expected<Vector<std::pair<String, float>>, WebCore::ImageDecodingError>&&)>&&);
     void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    // AQUAWEBKIT: fetch a site icon through the web process, which returns it as bitmaps, for the favicon store (#112).
+    void loadIconBitmaps(WebCore::ResourceRequest&&, const Vector<unsigned>& lengths, CompletionHandler<void(bool loaded, Vector<Ref<WebCore::ShareableBitmap>>&&, bool decodedAsBitmap)>&&);
     void decodeImageData(Ref<WebCore::SharedBuffer>&&, std::optional<WebCore::FloatSize>, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&&);
 #endif
 

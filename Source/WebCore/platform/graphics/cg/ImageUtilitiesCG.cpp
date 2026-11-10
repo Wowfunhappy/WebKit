@@ -436,6 +436,47 @@ void createBitmapsFromImageData(std::span<const uint8_t> data, std::span<const u
     });
 }
 
+// AQUAWEBKIT: see ImageUtilities.h.
+void createIconBitmapsFromImageData(std::span<const uint8_t> data, std::span<const unsigned> lengths, CompletionHandler<void(Vector<Ref<ShareableBitmap>>&&, bool decodedAsBitmap)>&& completionHandler)
+{
+    Ref buffer = SharedBuffer::create(data);
+    if (RefPtr decoder = decodeAllOf(buffer.get())) {
+        Vector<Ref<ShareableBitmap>> bitmaps;
+        size_t frameCount = decoder->frameCount();
+        for (auto& length : lengths) {
+            size_t index = decoder->primaryFrameIndex();
+            for (size_t candidate = 0; candidate < frameCount; ++candidate) {
+                if (decoder->frameSizeAtIndex(candidate) == IntSize(static_cast<int>(length), static_cast<int>(length))) {
+                    index = candidate;
+                    break;
+                }
+            }
+            RefPtr image = NativeImage::create(decoder->createFrameImageAtIndex(index));
+            if (!image) {
+                completionHandler({ }, false);
+                return;
+            }
+            // sRGB, as createBitmapsFromSVGImage draws: no embedded profile leaves this process.
+            RefPtr bitmap = ShareableBitmap::createFromImageDraw(*image, DestinationColorSpace::SRGB(), { static_cast<int>(length), static_cast<int>(length) }, image->size());
+            if (!bitmap) {
+                completionHandler({ }, false);
+                return;
+            }
+            bitmaps.append(bitmap.releaseNonNull());
+        }
+        completionHandler(WTF::move(bitmaps), true);
+        return;
+    }
+
+    SVGImage::tryCreateFromData(data, [lengthsVector = Vector<unsigned> { lengths }, completionHandler = WTF::move(completionHandler)](auto svgImage) mutable {
+        if (!svgImage) {
+            completionHandler({ }, false);
+            return;
+        }
+        completionHandler(createBitmapsFromSVGImage(*svgImage, lengthsVector.span()), false);
+    });
+}
+
 RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&& bitmaps)
 {
     if (bitmaps.isEmpty())

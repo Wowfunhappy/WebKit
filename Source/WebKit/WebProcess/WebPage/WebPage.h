@@ -1801,9 +1801,9 @@ public:
     void flushPendingEditorStateUpdate();
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize> sizeConstraint, uint64_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
-    // AQUAWEBKIT: the same load without the decode, for the UI process's favicon store (#112).
-    void loadImageData(WebCore::ResourceRequest&&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
 #if PLATFORM(COCOA)
+    // AQUAWEBKIT: LoadAndDecodeImage for the UI process's favicon store (#112); see WebPageCocoa.mm.
+    void loadIconBitmaps(WebCore::ResourceRequest&&, const Vector<unsigned>& lengths, CompletionHandler<void(bool loaded, Vector<Ref<WebCore::ShareableBitmap>>&&, bool decodedAsBitmap)>&&);
     void getInformationFromImageData(const Vector<uint8_t>&, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void getImageMetadata(const Vector<uint8_t>&, CompletionHandler<void(Expected<Vector<std::pair<String, float>>, WebCore::ImageDecodingError>&&)>&&);
     void createBitmapsFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(Vector<Ref<WebCore::ShareableBitmap>>&&)>&&);

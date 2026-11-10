@@ -81,6 +81,10 @@ WEBCORE_EXPORT String descriptionString(ImageDecodingError);
 WEBCORE_EXPORT Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t>);
 WEBCORE_EXPORT Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t>);
 WEBCORE_EXPORT void createBitmapsFromImageData(std::span<const uint8_t> data, std::span<const unsigned> lengths, CompletionHandler<void(Vector<Ref<ShareableBitmap>>&&)>&&);
+// AQUAWEBKIT: createBitmapsFromImageData for a site icon. Each length draws the image's frame of exactly
+// that size when it has one, into an sRGB bitmap; the completion's flag says whether an image decoder
+// read the bytes, as opposed to an SVG document being rendered.
+WEBCORE_EXPORT void createIconBitmapsFromImageData(std::span<const uint8_t> data, std::span<const unsigned> lengths, CompletionHandler<void(Vector<Ref<ShareableBitmap>>&&, bool decodedAsBitmap)>&&);
 WEBCORE_EXPORT RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&&);
 WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&&);
 

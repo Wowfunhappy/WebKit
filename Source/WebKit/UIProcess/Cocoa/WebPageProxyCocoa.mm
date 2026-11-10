@@ -2011,6 +2011,17 @@ void WebPageProxy::createIconDataFromImageData(Ref<WebCore::SharedBuffer>&& buff
     }, webPageIDInMainFrameProcess());
 }
 
+// AQUAWEBKIT: see WebPage::loadIconBitmaps.
+void WebPageProxy::loadIconBitmaps(WebCore::ResourceRequest&& request, const Vector<unsigned>& lengths, CompletionHandler<void(bool loaded, Vector<Ref<WebCore::ShareableBitmap>>&&, bool decodedAsBitmap)>&& completionHandler)
+{
+    if (isClosed() || !request.url().isValid() || !hasRunningProcess())
+        return completionHandler(false, { }, false);
+
+    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::LoadIconBitmaps(request, lengths), [preventProcessShutdownScope = protect(legacyMainFrameProcess())->shutdownPreventingScope(), completionHandler = WTF::move(completionHandler)] (bool loaded, Vector<Ref<WebCore::ShareableBitmap>>&& bitmaps, bool decodedAsBitmap) mutable {
+        completionHandler(loaded, WTF::move(bitmaps), decodedAsBitmap);
+    }, webPageIDInMainFrameProcess());
+}
+
 void WebPageProxy::decodeImageData(Ref<WebCore::SharedBuffer>&& buffer, std::optional<WebCore::FloatSize> preferredSize, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&& completionHandler)
 {
     if (isClosed())

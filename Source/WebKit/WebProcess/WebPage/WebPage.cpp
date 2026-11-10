@@ -8444,19 +8444,6 @@ void WebPage::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::option
     });
 }
 
-// AQUAWEBKIT: LoadAndDecodeImage without the decode or a size limit, for the favicon store the legacy
-// WK2 icon-database C API drives (#49, #112). The store needs a site's icon BYTES rather than a bitmap:
-// it admits an icon by decoding it and rasterizes what this OS's image decoders cannot read. The load
-// takes the same document-independent path through the network process that the load above does.
-void WebPage::loadImageData(WebCore::ResourceRequest&& request, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
-{
-    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::LoadImageForDecoding(WTF::move(request), m_webPageProxyIdentifier, std::numeric_limits<uint64_t>::max()), [completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&& result) mutable {
-        if (!result)
-            return completionHandler(nullptr);
-        completionHandler(result.value()->makeContiguous());
-    });
-}
-
 #if PLATFORM(MAC) || PLATFORM(WPE) || PLATFORM(GTK)
 void WebPage::flushPendingThemeColorChange()
 {

@@ -64,26 +64,14 @@ void WKIconDatabaseSetIconURLForPageURL(WKIconDatabaseRef, WKURLRef, WKURLRef)
 {
 }
 
-// WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef, WKURLRef)
-// AQUAWEBKIT: answer favicon URL/data queries from the icon store (#49).
-WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
+WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef, WKURLRef)
 {
-    // return nullptr;
-    String iconURL = toImpl(iconDatabaseRef)->iconURLForPageURL(toWTFString(pageURL));
-    if (iconURL.isEmpty())
-        return nullptr;
-    return toCopiedURLAPI(iconURL);
+    return nullptr;
 }
 
-// WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef, WKURLRef)
-// AQUAWEBKIT: return raw favicon bytes from the icon store (#49).
-WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
+WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef, WKURLRef)
 {
-    // return nullptr;
-    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
-    if (!data)
-        return nullptr;
-    return toAPILeakingRef(data.releaseNonNull());
+    return nullptr;
 }
 
 void WKIconDatabaseEnableDatabaseCleanup(WKIconDatabaseRef)

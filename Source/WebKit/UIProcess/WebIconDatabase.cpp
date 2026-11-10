@@ -53,8 +53,8 @@ static int64_t nowStamp()
     return static_cast<int64_t>(std::floor(WallTime::now().secondsSinceEpoch().seconds()));
 }
 
-// AQUAWEBKIT: precedence of a stored icon (#112). An icon the site declared and this OS decoded
-// outranks a rasterized stand-in, which outranks a guessed /favicon.ico nobody declared; an icon never
+// AQUAWEBKIT: precedence of a stored icon (#112). A declared icon an image decoder read outranks a
+// declared SVG document, which outranks a guessed /favicon.ico nobody declared; an icon never
 // displaces one of higher rank, and equal rank replaces, so a site can refresh its own icon.
 static unsigned iconOriginRank(WebIconDatabase::IconOrigin origin)
 {
@@ -162,10 +162,9 @@ bool WebIconDatabase::openDatabaseAtPath(const String& path)
             return false;
     }
 
-    // The one departure from the legacy schema: which decoder produced the stored bytes has to survive
-    // the relaunch, or a rasterized stand-in read back from disk would pass for natively decoded and
-    // wrongly block the site's own bitmap icon. An extra column is invisible to readers of the legacy
-    // columns; rows from a file the legacy code wrote are all natively decoded, which is the default.
+    // The one departure from the legacy schema's tables: how the stored icon was produced has to survive
+    // the relaunch, or a rendered SVG read back from disk would pass for a decoded bitmap and wrongly
+    // block the site's own bitmap icon. An extra column is invisible to readers of the legacy columns.
     if (!m_db->prepareStatement("SELECT origin FROM IconInfo LIMIT 1;"_s)) {
         if (!m_db->executeCommand("ALTER TABLE IconInfo ADD COLUMN origin INTEGER NOT NULL DEFAULT 0;"_s))
             return false;
@@ -213,6 +212,11 @@ void WebIconDatabase::loadFromDatabase()
         auto blob = iconQuery->columnBlob(3);
         if (iconURL.isEmpty() || blob.isEmpty())
             continue;
+        // Stock WebKit's legacy icon database writes a site's raw image bytes to this same file; only
+        // rows in the stored form are this store's.
+        if (!isIconData(blob.span()))
+            continue;
+        Ref data = API::Data::create(blob.span());
         auto origin = IconOrigin::NativelyDecoded;
         switch (iconQuery->columnInt(2)) {
         case 1:
@@ -222,7 +226,7 @@ void WebIconDatabase::loadFromDatabase()
             origin = IconOrigin::Guessed;
             break;
         }
-        m_iconURLToData.set(iconURL, StoredIcon { API::Data::create(blob.span()), origin, iconQuery->columnInt64(1), true });
+        m_iconURLToData.set(iconURL, StoredIcon { WTF::move(data), origin, iconQuery->columnInt64(1), true });
     }
 
     auto pageQuery = m_db->prepareStatement("SELECT PageURL.url, IconInfo.url, PageURL.origin FROM PageURL INNER JOIN IconInfo ON PageURL.iconID = IconInfo.iconID;"_s);
@@ -279,8 +283,9 @@ bool WebIconDatabase::writeIconToDatabase(const String& iconURL, const StoredIco
     if (!infoStatement || infoStatement->bindInt64(1, icon.stamp) != SQLITE_OK || infoStatement->bindInt(2, static_cast<int>(icon.origin)) != SQLITE_OK || infoStatement->bindInt64(3, iconID) != SQLITE_OK || infoStatement->step() != SQLITE_DONE)
         return false;
 
-    // IconData.iconID is UNIQUE ON CONFLICT REPLACE, so a plain INSERT is also the update.
-    auto dataStatement = m_db->prepareStatement("INSERT INTO IconData (iconID, data) VALUES (?, ?);"_s);
+    // IconData.iconID is the table's INTEGER PRIMARY KEY, whose conflicts the column's ON CONFLICT REPLACE
+    // does not cover; the statement's own REPLACE makes the INSERT the update.
+    auto dataStatement = m_db->prepareStatement("INSERT OR REPLACE INTO IconData (iconID, data) VALUES (?, ?);"_s);
     if (!dataStatement || dataStatement->bindInt64(1, iconID) != SQLITE_OK || dataStatement->bindBlob(2, icon.data->span()) != SQLITE_OK)
         return false;
     return dataStatement->step() == SQLITE_DONE;
@@ -309,21 +314,13 @@ bool WebIconDatabase::touchDatabaseIconRecord(const String& iconURL, int64_t sta
 
 bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data, IconOrigin origin, Persistence persistence)
 {
-    // AQUAWEBKIT: admit only bytes this build can decode (github #76). There is ONE icon slot
-    // per page here, so undecodable bytes are not merely useless — accepting them REPLACES a decodable
-    // icon and leaves Safari drawing the generic globe. Which formats those are is not guessed from a
-    // MIME type or a file extension: the test is the decode itself, through the same path the C API
-    // will use to hand the icon to Safari.
-    if (decodeIconData(data.get()).isEmpty())
-        return false;
-
     return storeIcon(pageURL, iconURL, StoredIcon { WTF::move(data), origin }, persistence);
 }
 
 bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const String& iconURL, Persistence persistence, std::optional<IconOrigin> mappingRank)
 {
-    // AQUAWEBKIT: these bytes are already in the store and already known to decode, so this
-    // needs neither the admission test nor another rasterization — only the precedence rule (#49).
+    // AQUAWEBKIT: these bytes are already in the store, so this needs no fetch or rasterization —
+    // only the precedence rule (#49).
     auto stored = m_iconURLToData.get(iconURL);
     if (!stored.data)
         return false;
@@ -443,8 +440,8 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
     // but a commit-time guess reusing bytes a declared offer stored claims them only as a guess.
     auto rank = mappingRank.value_or(icon.origin);
 
-    // AQUAWEBKIT: a write never displaces a claim the page holds at higher rank — a rasterized
-    // stand-in must not displace an icon that decoded natively (a page declaring both an SVG and a
+    // AQUAWEBKIT: a write never displaces a claim the page holds at higher rank — a rendered SVG
+    // must not displace an icon an image decoder read (a page declaring both an SVG and a
     // bitmap favicon, as github.com does, has a real icon already, and which one the single slot holds
     // must not depend on which load finished first, github #76), and a
     // guessed /favicon.ico must not displace anything the page actually declared (#112).
@@ -466,10 +463,11 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
         bool bytesAlreadyOnDisk = existing != m_iconURLToData.end() && existing->value.data == icon.data && existing->value.onDisk;
         bool wroteIcon = bytesAlreadyOnDisk ? touchDatabaseIconRecord(iconURL, icon.stamp) : writeIconToDatabase(iconURL, icon);
         wroteIcon = writePageMappingToDatabase(pageURL, iconURL, rank) && wroteIcon;
-        transaction.commit();
+        if (wroteIcon)
+            transaction.commit();
         // onDisk must record only what the file really holds: a failed statement or a COMMIT that did
-        // not go through (the transaction then rolls back on destruction) leaves nothing written, and
-        // a later store retries only bytes not marked on disk. Bytes already on disk from an earlier committed write stay on
+        // not go through leaves the transaction to roll back on destruction, and a later store retries
+        // only bytes not marked on disk. Bytes already on disk from an earlier committed write stay on
         // disk whatever happened to this transaction.
         icon.onDisk = bytesAlreadyOnDisk || (wroteIcon && !transaction.inProgress());
     }

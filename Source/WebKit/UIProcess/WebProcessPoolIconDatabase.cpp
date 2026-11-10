@@ -37,7 +37,7 @@
 #include "WebPageProxy.h"
 #include <WebCore/LinkIcon.h>
 #include <WebCore/RegistrableDomain.h>
-#include <WebCore/SharedBuffer.h>
+#include <WebCore/ShareableBitmap.h>
 #include <wtf/HashMap.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
@@ -50,74 +50,21 @@ namespace WebKit {
 
 using namespace WebCore;
 
-// AQUAWEBKIT: hand a favicon's bytes to the WebIconDatabase (#49).
-//
-// The store refuses bytes it cannot decode, which for a favicon that downloaded fine means they are in
-// a format no image decoder reads. That is above all SVG, which is a document rather than a bitmap
-// and belongs to no image decoder on any port, so a page whose only declared favicon is an SVG —
-// news.ycombinator.com's y18.svg, and increasingly common elsewhere — would have no site icon
-// whatsoever. WebKit renders SVG perfectly well, and upstream already converts image data the platform
-// cannot use into an .ico for exactly this reason: the web process rasterizes (SVGImage when the bytes
-// are not a bitmap) and the UI process packs the frames into an .ico, which the ICOImageDecoder reads.
-// 16 and 32 are the only sizes Safari 7 ever asks for (IconController's smallIconSize and
-// mediumIconSize).
-//
-// Two questions to the store come first, because both make that round trip pointless. If the page
-// already has an icon this OS decoded on its own, the store will refuse a rasterized one, so rendering
-// it would be waste on every load of every site that declares an SVG alongside a bitmap favicon
-// (github.com declares both) — and waste that can never amortize, since a refused result is never
-// stored to be found next time. And every page of an SVG-favicon site declares the same icon URL, so
-// once these bytes have been rendered the store can answer from what it holds.
-static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& initialRequestPageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin)
-{
-    // AQUAWEBKIT: bytes landing move the page's claim, so the URL its load started from
-    // follows; see WebProcessPool::carryIconToInitialRequestURL (#112).
-    auto carryToInitialRequestURL = [&iconDatabase, &pageURL, &initialRequestPageURL, persistence] {
-        iconDatabase.carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
-    };
-
-    // A guessed icon stays at Guessed rank whether its bytes decoded natively or had to be rasterized —
-    // the rank records that nobody declared it, not how it was read.
-    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), fetchedOrigin, persistence)) {
-        carryToInitialRequestURL();
-        return;
-    }
-
-    if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
-        return;
-    // The same cap as the fetch's own reuse: a guess claims whatever bytes it falls back on at
-    // Guessed rank, however they were once decoded.
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt)) {
-        carryToInitialRequestURL();
-        return;
-    }
-    RefPtr page = weakPage.get();
-    if (!page)
-        return;
-
-    auto rasterizedOrigin = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? WebIconDatabase::IconOrigin::Guessed : WebIconDatabase::IconOrigin::Rasterized;
-    auto generation = iconDatabase.generation();
-    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, initialRequestPageURL, iconURL, generation, persistence, rasterizedOrigin](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
-        if (iconDatabase->generation() != generation)
-            return;
-        // Nothing here could read these bytes and the web process could not draw them either, so they
-        // are no icon at all and this icon URL is not worth fetching again.
-        if (!rasterizedIcon) {
-            iconDatabase->noteUnusableIconURL(iconURL);
-            return;
-        }
-        if (iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), rasterizedOrigin, persistence))
-            iconDatabase->carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
-    });
-}
+// What a favicon fetch produced. `loaded` is false when the load itself failed; a loaded icon URL
+// without frames serves no icon.
+struct FetchedIcon {
+    bool loaded { false };
+    RefPtr<API::Data> frames;
+    bool decodedAsBitmap { false };
+};
 
 // The completions waiting on each favicon fetch, by session, page and icon URL. A page's commit-time
 // guess and its own icon offer often name the same /favicon.ico moments apart, and the second waits on
 // the first fetch.
-static HashMap<String, Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>>>& iconFetchesInFlight()
+static HashMap<String, Vector<CompletionHandler<void(const FetchedIcon&)>>>& iconFetchesInFlight()
 {
     ASSERT(isMainRunLoop());
-    static NeverDestroyed<HashMap<String, Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>>>> fetches;
+    static NeverDestroyed<HashMap<String, Vector<CompletionHandler<void(const FetchedIcon&)>>>> fetches;
     return fetches;
 }
 
@@ -129,8 +76,9 @@ static HashMap<String, Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>>>&
 // The fetch goes out while the page is still current and through the network process, so nothing about
 // the page's own loading can cancel it — which is the whole point of doing it here. It is made as
 // WebCore's IconLoader makes it: in the page's site context, without stored credentials, and never
-// asking the user for any. An icon URL whose answer is empty or does not decode is remembered
-// as serving no icon, so it costs one fetch per site.
+// asking the user for any. The page's web process decodes or renders the answer, and an icon URL
+// whose answer is neither an image nor an SVG document is remembered as serving no icon, so it costs
+// one fetch per site.
 static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin = WebIconDatabase::IconOrigin::NativelyDecoded)
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
@@ -168,31 +116,26 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     carryToInitialRequestURL();
 
     auto generation = iconDatabase.generation();
-    auto completion = [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, initialRequestPageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<SharedBuffer>&& iconData) {
+    auto completion = [iconDatabase = Ref { iconDatabase }, pageURL, initialRequestPageURL, iconURL, generation, persistence, fetchedOrigin](const FetchedIcon& icon) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing came back at all: a network error, or a load the network process refused. Say nothing
         // about the icon URL itself — the next page of the site may well get it.
-        if (!iconData)
+        if (!icon.loaded)
             return;
-        if (iconData->isEmpty()) {
+        if (!icon.frames) {
             iconDatabase->noteUnusableIconURL(iconURL);
             return;
         }
-
-        // AQUAWEBKIT: upstream's IconLoader::notifyFinished refuses a PDF outright, and this OS's
-        // ImageIO decodes PDF, so decoding alone would admit an icon upstream declines.
-        static constexpr std::array<uint8_t, 4> pdfMagicNumber { '%', 'P', 'D', 'F' };
-        if (iconData->startsWith(pdfMagicNumber)) {
-            iconDatabase->noteUnusableIconURL(iconURL);
-            return;
-        }
-
-        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, initialRequestPageURL, iconURL, API::Data::create(iconData->span()), persistence, fetchedOrigin);
+        // A guessed icon stays at Guessed rank whether its bytes were decoded or rendered — the rank
+        // records that nobody declared it, not how it was read.
+        auto origin = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed || icon.decodedAsBitmap ? fetchedOrigin : WebIconDatabase::IconOrigin::Rasterized;
+        if (iconDatabase->setIconDataForPageURL(pageURL, iconURL, Ref { *icon.frames }, origin, persistence))
+            iconDatabase->carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
     };
 
     auto key = makeString(page.sessionID().toUInt64(), ' ', pageURL, ' ', iconURL);
-    auto& waiting = iconFetchesInFlight().ensure(key, [] { return Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>> { }; }).iterator->value;
+    auto& waiting = iconFetchesInFlight().ensure(key, [] { return Vector<CompletionHandler<void(const FetchedIcon&)>> { }; }).iterator->value;
     waiting.append(WTF::move(completion));
     if (waiting.size() > 1)
         return;
@@ -206,15 +149,16 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
         request.setIsSameSite(RegistrableDomain { iconRequestURL } == firstPartyDomain);
     }
     request.setIsTopSite(false);
-    page.loadImageData(WTF::move(request), [key = WTF::move(key)](RefPtr<SharedBuffer>&& iconData) {
+    page.loadIconBitmaps(WTF::move(request), Vector<unsigned> { std::span { iconLengths } }, [key = WTF::move(key)](bool loaded, Vector<Ref<ShareableBitmap>>&& bitmaps, bool decodedAsBitmap) {
+        FetchedIcon icon { loaded, bitmaps.isEmpty() ? nullptr : createIconData(bitmaps), decodedAsBitmap };
         for (auto& completion : iconFetchesInFlight().take(key))
-            completion(RefPtr { iconData });
+            completion(icon);
     });
 }
 
 // AQUAWEBKIT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
 // favicon it asks for a load decision; this client declines the load and fetches the icon itself, then
-// hands the bytes to the WebIconDatabase, which notifies Safari via the legacy C client (#49).
+// hands the frames to the WebIconDatabase, which notifies Safari via the legacy C client (#49).
 class PageIconLoadingClient final : public API::IconLoadingClient {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(PageIconLoadingClient);
 public:

@@ -37,6 +37,9 @@
 #import "PDFPluginBase.h"
 #import "PluginView.h"
 #import "PositionInformationForWebPage.h"
+// AQUAWEBKIT: the network-process load WebPage::loadIconBitmaps below makes.
+#import "NetworkConnectionToWebProcessMessages.h"
+#import "NetworkProcessConnection.h"
 #import "PrintInfo.h"
 #import "RemoteLayerTreeCommitBundle.h"
 #import "RemoteLayerTreeTransaction.h"
@@ -1582,6 +1585,24 @@ void WebPage::createBitmapsFromImageData(Ref<WebCore::SharedBuffer>&& buffer, co
 void WebPage::decodeImageData(Ref<WebCore::SharedBuffer>&& buffer, std::optional<WebCore::FloatSize> preferredSize, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&& completionHandler)
 {
     decodeImageWithSize(buffer->span(), preferredSize, WTF::move(completionHandler));
+}
+
+// AQUAWEBKIT: a site icon for the favicon store the legacy WK2 icon-database C API drives (#49, #112).
+// The load takes LoadAndDecodeImage's document-independent path through the network process, and the
+// bytes are decoded or rendered here, so the UI process receives only bitmaps of the requested lengths.
+// `loaded` is false when the load itself failed; a load whose bytes are no icon has no bitmaps.
+void WebPage::loadIconBitmaps(WebCore::ResourceRequest&& request, const Vector<unsigned>& lengths, CompletionHandler<void(bool loaded, Vector<Ref<WebCore::ShareableBitmap>>&&, bool decodedAsBitmap)>&& completionHandler)
+{
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::LoadImageForDecoding(WTF::move(request), m_webPageProxyIdentifier, std::numeric_limits<uint64_t>::max()), [lengths, completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&& result) mutable {
+        if (!result)
+            return completionHandler(false, { }, false);
+        Ref data = result.value()->makeContiguous();
+        if (data->isEmpty())
+            return completionHandler(true, { }, false);
+        WebCore::createIconBitmapsFromImageData(data->span(), lengths.span(), [data, completionHandler = WTF::move(completionHandler)](Vector<Ref<WebCore::ShareableBitmap>>&& bitmaps, bool decodedAsBitmap) mutable {
+            completionHandler(true, WTF::move(bitmaps), decodedAsBitmap);
+        });
+    });
 }
 
 #if HAVE(PDFKIT)

@@ -28,7 +28,9 @@
 #include "APIObject.h"
 // AQUAWEBKIT: includes and forward declarations for the icon store's members below (#49).
 #include <CoreGraphics/CoreGraphics.h>
+#include <array>
 #include <optional>
+#include <span>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/RetainPtr.h>
@@ -43,18 +45,25 @@ class IconLoadingClient;
 
 namespace WebCore {
 class SQLiteDatabase;
+class ShareableBitmap;
 }
 
 namespace WebKit {
 
 class WebPageProxy;
 
-// AQUAWEBKIT: decodes stored favicon bytes into their frames, defined next to the C API that
-// hands them to Safari (UIProcess/API/C/cg/WKIconDatabaseCG.cpp) because that is where the platform
-// image machinery lives. The store uses it to admit only icons this build can actually turn into an
-// image (github #76): with one icon slot per page, accepting undecodable bytes would let them replace
-// a good icon and leave Safari drawing the generic globe.
-Vector<RetainPtr<CGImageRef>> decodeIconData(API::Data&);
+// AQUAWEBKIT: the stored form of an icon: one frame per length below, in order, each the length as a 32-bit
+// little-endian integer followed by length x length premultiplied 32-bit BGRA sRGB pixels, top row
+// first. The web process decodes or renders a site's icon bytes into bitmaps of these lengths, the
+// only sizes Safari 7 asks for (IconController's smallIconSize and mediumIconSize); the UI process
+// reads no other image format. Both functions live with the C API that hands the frames to Safari
+// (UIProcess/API/C/cg/WKIconDatabaseCG.cpp).
+static constexpr std::array<unsigned, 2> iconLengths { 16, 32 };
+// Null unless there is one bitmap of each length, in order.
+RefPtr<API::Data> createIconData(const Vector<Ref<WebCore::ShareableBitmap>>&);
+// Whether the bytes are exactly in the stored form; iconFramesFromData is empty unless they are.
+bool isIconData(std::span<const uint8_t>);
+Vector<RetainPtr<CGImageRef>> iconFramesFromData(API::Data&);
 
 class WebIconDatabase : public API::ObjectImpl<API::Object::Type::IconDatabase> {
     // AQUAWEBKIT: the favicon store Safari 7 drives through the WK2 icon-database C API
@@ -79,11 +88,10 @@ public:
     // in flight.
     bool iconNeedsRefresh(const WTF::String& iconURL) const;
 
-    // AQUAWEBKIT: where a stored icon's bytes came from, which is its precedence. Rasterized
-    // means the site's own bytes were in a format this OS has no decoder for — on 10.9 that is SVG
-    // above all — and the web process rendered them into an .ico instead: a stand-in for bytes this OS
-    // could not read, so it never displaces an icon that decoded on its own, whichever load finished
-    // first. Guessed means nobody declared this icon at all — it is the origin's /favicon.ico, fetched
+    // AQUAWEBKIT: how a stored icon was produced from the site's bytes, which is its precedence.
+    // NativelyDecoded means an image decoder in the web process read them; Rasterized means they were
+    // an SVG document the web process rendered, which never displaces a decoded icon, whichever load
+    // finished first. Guessed means nobody declared this icon at all — it is the origin's /favicon.ico, fetched
     // at commit so a page abandoned before its head even arrives still gets an icon (#112) — so any
     // icon the page actually declares displaces it. The numeric values are stored in the database.
     enum class IconOrigin : uint8_t { NativelyDecoded = 0, Rasterized = 1, Guessed = 2 };
@@ -93,12 +101,11 @@ public:
     // The page URL alone is a browsing record, so this covers the pending mappings too.
     enum class Persistence : bool { SessionOnly, Persistent };
 
-    // AQUAWEBKIT: returns whether the icon was stored — it is rejected when this build cannot
-    // decode it (github #76), and a rasterized one is rejected when the page already has a natively
-    // decoded icon.
+    // AQUAWEBKIT: returns whether the icon was stored — a rasterized one is rejected when the page
+    // already has a natively decoded icon.
     bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&, IconOrigin = IconOrigin::NativelyDecoded, Persistence = Persistence::Persistent);
-    // AQUAWEBKIT: point a page at icon bytes already held under this icon URL, so a site whose
-    // icon had to be rasterized pays for that once rather than on every page of the site. Same
+    // AQUAWEBKIT: point a page at icon bytes already held under this icon URL, so a site's icon
+    // is fetched and rasterized once rather than on every page of the site. Same
     // precedence rule as above; returns whether the page now holds that icon. mappingRank caps the
     // strength of the page's claim: a commit-time guess reusing bytes a DECLARED offer once stored
     // holds them at Guessed rank all the same, so the icon this page itself declares still wins.
@@ -113,16 +120,15 @@ public:
     // unchanged, so the icon it holds under its old URL is the icon of the URL it now shows under, and
     // no load will ever commit for that new URL to say so otherwise (#112).
     void carryIconForPageURL(const WTF::String& fromPageURL, const WTF::String& toPageURL, Persistence = Persistence::Persistent);
-    // AQUAWEBKIT: the precedence rule as a question, so a caller holding bytes this build
-    // cannot decode can tell that rasterizing them would be work whose result the store is already
-    // certain to refuse.
+    // AQUAWEBKIT: the precedence rule as a question, so the client can tell that fetching another
+    // declared icon would be work whose result the store is already certain to refuse.
     bool hasNativelyDecodedIconForPageURL(const WTF::String& pageURL) const;
     // AQUAWEBKIT: the rank of the byte-backed icon the page currently holds, if any — what a
     // commit-time guess consults so it fetches nothing for a page whose icon is already known (#112).
     std::optional<IconOrigin> storedIconOriginForPageURL(const WTF::String& pageURL) const;
     // AQUAWEBKIT: an icon URL whose bytes have been fetched and turned out to be no icon at all —
-    // the error page a site without a /favicon.ico serves for it, or an image nothing here can read and
-    // the web process cannot rasterize either. The client fetches icons itself (#112), and this keeps
+    // the error page a site without a /favicon.ico serves for it, or bytes the web process can neither
+    // decode nor render. The client fetches icons itself (#112), and this keeps
     // it from fetching the same dead URL for every further page of that site, which all declare it.
     void noteUnusableIconURL(const WTF::String& iconURL);
     bool isUnusableIconURL(const WTF::String& iconURL) const;
