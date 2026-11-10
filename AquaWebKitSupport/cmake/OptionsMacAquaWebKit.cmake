@@ -264,6 +264,10 @@ SET_AND_EXPOSE_TO_BUILD(USE_TIFF TRUE)
 # the FFmpeg the media runtime already carries.
 SET_AND_EXPOSE_TO_BUILD(USE_HEIF TRUE)
 
+# ON. Every image decodes in WebKit's own decoders, so Image::create makes no PDFDocumentImage: a PDF
+# named by <img> or a CSS image draws nothing, as on the other ports that decode in WebKit.
+SET_AND_EXPOSE_TO_BUILD(USE_WEBKIT_IMAGE_DECODERS TRUE)
+
 # The OpenType Sanitiser backs the CoreText polyfill's memory-safe font parser, which every
 # downloadable font goes through (polyfill/polyfills/c/ots_font_parser.cpp). Asked here, by name,
 # rather than left to an unresolved symbol inside every image that force-loads libpolyfill.a.
