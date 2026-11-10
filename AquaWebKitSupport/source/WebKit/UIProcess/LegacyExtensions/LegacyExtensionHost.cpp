@@ -388,11 +388,15 @@ static void forEachFrame(WebFrameProxy& frame, NOESCAPE const Function<void(WebF
 
 static URL extensionRoot(const URL&);
 
+// The key names the extension's storage directory, so it is never a relative path component.
 static String extensionKeyForURL(const URL& url)
 {
     if (!url.protocolIs(extensionScheme))
         return { };
-    return url.host().toString();
+    auto host = url.host();
+    if (host == "."_s || host == ".."_s)
+        return { };
+    return host.toString();
 }
 
 // Whether an extension sees a page's URL and title, as Safari 7's ExtensionAPIExtension::canAccessPageURL decides it
@@ -715,7 +719,7 @@ void LegacyExtensionHost::setUserContentExtensionRoots(IPC::Connection& connecti
     Vector<URL> roots;
     for (auto& rootString : rootStrings) {
         URL root { rootString };
-        if (extensionRoot(root) == root)
+        if (!extensionKeyForURL(root).isEmpty() && extensionRoot(root) == root)
             roots.append(WTF::move(root));
     }
     auto processIdentifier = WebProcessProxy::fromConnection(connection)->coreProcessIdentifier();
@@ -730,9 +734,12 @@ void LegacyExtensionHost::setUserContentExtensionRoots(IPC::Connection& connecti
 // Info.plist is read in this process, which the wait does not block.
 void LegacyExtensionHost::setUserContentExtensionRootsAndWait(IPC::Connection& connection, Vector<String>&& roots, CompletionHandler<void(String&&)>&& completionHandler)
 {
-    auto extensionKeys = roots.map([](auto& root) {
-        return URL { root }.host().toString();
-    });
+    Vector<String> extensionKeys;
+    for (auto& rootString : roots) {
+        URL root { rootString };
+        if (auto extensionKey = extensionKeyForURL(root); !extensionKey.isEmpty() && extensionRoot(root) == root)
+            extensionKeys.append(WTF::move(extensionKey));
+    }
     setUserContentExtensionRoots(connection, WTF::move(roots));
     auto aggregator = CallbackAggregator::create([this, completionHandler = WTF::move(completionHandler)]() mutable {
         completionHandler(String { m_resourcePoliciesJSON });
@@ -1508,7 +1515,7 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
 // context belongs to one document of the frame: the frame's next document is another page.
 RefPtr<LegacyExtensionHost::HostContext> LegacyExtensionHost::extensionPageContext(WebFrameProxy& frame, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, const URL& documentURL, const String& extensionKey)
 {
-    if (extensionKeyForURL(documentURL) != extensionKey)
+    if (extensionKey.isEmpty() || extensionKeyForURL(documentURL) != extensionKey)
         return nullptr;
     if (auto identifier = m_hostContextByRemoteFrame.get(frame.frameID())) {
         if (RefPtr context = m_hostContexts.get(identifier)) {
