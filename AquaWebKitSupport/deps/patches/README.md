@@ -7,6 +7,13 @@ over-strict behavior in GStreamer's **own** source — never a workaround that b
 - Is the thing you are trying to fix _really_ broken upstream for hundreds of thousands of users without anyone noticing? If not, it's probably a bug in our code, which we should fix in our code.
 - Is it possible to upgrade to a newer version of the dependency instead of patching the old one? If so, it's probably better to upgrade.
 
+## glib-macos-deployment-target.patch
+
+**Target:** `glib-2.90.1`, `meson.build`
+**Applied to:** GLib (libglib, libgobject, libgio, libgmodule, libgthread, libgirepository)
+
+GLib's meson build stops with "GLib requires macOS 10.13 or later" when the deployment target is lower (GLib issue #3441). This runtime deploys to 10.9, so the patch removes that check. What GLib calls that 10.9 lacks is defined by the gap archive build_deps.sh force-loads into every media library: `openat`, `fstatat`, `fdopendir`, `faccessat` and `utimensat`, which GLib imports weakly from libSystem, and `LSCopyApplicationURLsForBundleIdentifier` and `LSCopyDefaultApplicationURLForContentType`, which gosxappinfo calls (`polyfill/polyfills/shared/launchservices.c` builds them on 10.9's LaunchServices). The undefined-references step at the end of build_deps.sh fails the build if any import of the deployed runtime has no definition on 10.9.
+
 ## gstreamer-multiqueue-ready-pad-activation.patch
 
 **Target:** GStreamer 1.28.7, `plugins/elements/gstmultiqueue.c`
@@ -565,18 +572,11 @@ The ring buffer pauses (`gst_audio_ring_buffer_pause_unlocked()`) from a streami
 **Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/downloadhelper.c`, `downloadhelper.h`, `gstadaptivedemux.c`, `gstadaptivedemuxelement.c`
 **Applied to:** libgstadaptivedemux2 (`hlsdemux2`)
 
-adaptivedemux2's download helper fetches `file://` URIs through GFile and everything else through libsoup, which it dlopens; `adaptivedemux2_base_element_init` registers no element when libsoup does not load, and upstream WebKit demotes the elements regardless because their requests would bypass its network stack. This build ships no libsoup. Without it, the helper fetches every other URI with the URI source element that handles it, made by `gst_element_make_from_uri`, which in WebKit is `webkitwebsrc` and loads through the NetworkProcess like every other media request.
+adaptivedemux2's download helper fetches `file://` URIs through GFile and everything else through libsoup, which it dlopens; `adaptivedemux2_base_element_init` registers no element when libsoup does not load, and upstream WebKit demotes the elements regardless because their requests would bypass its network stack. This build ships no libsoup. Without it, the helper fetches every URI, `file:` included, with the URI source element that handles it, made by `gst_element_make_from_uri`, which in WebKit is `webkitwebsrc` and loads through WebCore like every other media request.
 
 Each such transfer links the element's src pad to a pad of its own and gives the element a private bus. The element's `http-headers` event (the structure souphttpsrc sends: status code, redirection URI, request and response headers) sets the request's status, redirect, headers, `Content-Length` and, for a partial response, the `Content-Range` start; a source without one delivers data with status 200. A range goes to the element as a BYTES seek, its stop exclusive. The element's buffers become the request's data, clipped to the range; its EOS or error message ends the transfer. Its context requests are posted through the demuxer, which is in the pipeline, so WebKit hands `webkitwebsrc` its loader. The streaming thread only records the outcome: the helper's own thread stops the element and completes the transfer, as it completes the soup and file transfers, so no transfer is completed while its request lock is held. Header-only requests (dashdemux2's clock sync) are refused, as for `file://`. With no libsoup there is no cookie jar, so `downloadhelper_add_cookie` returns before it parses anything, and the element applies the cookies of the loader it loads through.
 
-The URI-source backend accepts the resource schemes its host routes. Its
-`webkit.resource-loader` context supplies a `uri-mapper` function using WebKit's
-shared playbin URI conversion, so each variant, segment, initialization map, key
-and subtitle request selects the same resource transport as a top-level load.
-The source requests the existing loader/player context for the actual fetch.
-Non-HTTP response status zero maps to the downloader's successful GFile status;
-HTTP status and range errors retain their existing meanings. The libsoup backend
-keeps its manifest scheme restriction.
+Before making the element, the helper passes each URI through the `uri-mapper` function in the element's `webkit.resource-loader` context. WebKit's mapper (`gStreamerChildResourceURI`) wraps every `file:` URI, and every scheme GStreamer itself must not open, in `webkit-resource:`, the scheme only `webkitwebsrc` handles, so each variant, segment, initialization map and key a manifest names is a WebCore load: `CachedResourceLoader` applies the document's rules (an http(s) page cannot load a `file:` resource; a `file:` page can load its neighbours), and the response observer records each response's origin. Non-HTTP responses with status zero map to the downloader's successful GFile status; HTTP status and range errors keep their meanings. The libsoup backend keeps its GFile transfers and its manifest scheme restriction.
 
 ## gst-plugins-good-adaptivedemux2-hls-codec-change-new-parser.patch
 

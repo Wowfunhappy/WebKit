@@ -67,6 +67,12 @@ static void wk_merge_list_element(const char *variable, const char *element)
 // for "mp4a.40.42", which upstream maps only on this variable or a decoder advertising
 // stream-format=usac.
 //
+// GST_PLUGIN_FEATURE_RANK, rank NONE: elements no WebKit path uses, in plugins whose other elements it
+// does use, so decodebin never plugs them for page content. osxaudio's atdec hands AAC and MPEG audio
+// to 10.9's AudioToolbox, and every stream it takes another decoder here takes too (LOAS in
+// avdec_aac_latm); the parsers are for formats with no decoder here (AMR, SBC, WavPack, H.266,
+// JPEG 2000, PNG), raw media no demuxer here outputs unaligned, and MCC/SCC caption files.
+//
 // All are set with overwrite=0 / merged, so an explicit setting in the environment still wins.
 __attribute__((constructor)) static void wk_gstreamer_env_init(void)
 {
@@ -76,4 +82,14 @@ __attribute__((constructor)) static void wk_gstreamer_env_init(void)
 
     // GST_RANK_PRIMARY + 1.
     wk_merge_list_element("GST_PLUGIN_FEATURE_RANK", "fdkaacdec:257");
+
+    static const char *const unusedElements[] = {
+        "atdec", "amrparse", "sbcparse", "wavpackparse", "h266parse", "jpeg2000parse", "pngparse",
+        "unalignedaudioparse", "unalignedvideoparse", "mccparse", "sccparse",
+    };
+    for (size_t i = 0; i < sizeof(unusedElements) / sizeof(unusedElements[0]); i++) {
+        char element[64];
+        snprintf(element, sizeof(element), "%s:NONE", unusedElements[i]);
+        wk_merge_list_element("GST_PLUGIN_FEATURE_RANK", element);
+    }
 }

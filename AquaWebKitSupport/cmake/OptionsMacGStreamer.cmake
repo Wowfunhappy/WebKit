@@ -1,4 +1,4 @@
-# Wire GStreamer 1.28.7 / glib 2.80.5 from AquaWebKitSupport/deps/build
+# Wire GStreamer 1.28.7 / glib 2.90.1 from AquaWebKitSupport/deps/build
 # (built from source for x86_64 macOS 10.9 by AquaWebKitSupport/deps/build_deps.sh; no compat or
 # reexport shim dylibs) into the build,
 # replacing the pkg-config-based FindGStreamer/FindGLIB that the GTK/WPE ports use (no pkg-config
@@ -33,7 +33,7 @@ include_directories(SYSTEM ${_GST_INCLUDE_DIRS})
 
 # --- GLib imported targets (FindGLIB.cmake equivalents) ---
 set(GLIB_INCLUDE_DIRS "${GST_ROOT}/include/glib-2.0" "${GST_LIB}/glib-2.0/include")
-set(GLIB_VERSION "2.80.5")
+set(GLIB_VERSION "2.90.1")
 set(GLIB_FOUND TRUE)
 macro(_GST_DEFINE_GLIB_TARGET _name _lib)
     if (NOT TARGET GLib::${_name})

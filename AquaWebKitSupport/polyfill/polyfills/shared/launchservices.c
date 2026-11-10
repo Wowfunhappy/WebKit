@@ -43,11 +43,8 @@ typedef CFStringRef (*WKLSCopyDefaultRoleHandlerForContentType)(CFStringRef, LSR
 static void *wk_ls_sym(const char *name)
 {
     static void *handle;
-    if (!handle) {
+    if (!handle)
         handle = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
-        if (!handle)
-            return NULL;
-    }
     return dlsym(handle, name);
 }
 
@@ -64,7 +61,7 @@ static CFURLRef wk_url_for_bundle_id(CFStringRef bundleID, CFErrorRef *outError)
 {
     WKLSFindApplicationForInfo find =
         (WKLSFindApplicationForInfo)wk_ls_sym("LSFindApplicationForInfo");
-    if (!find || !bundleID) {
+    if (!bundleID) {
         wk_ls_set_error(outError, WKLSApplicationNotFoundErr);
         return NULL;
     }
@@ -105,7 +102,7 @@ CFURLRef LSCopyDefaultApplicationURLForContentType(CFStringRef inContentType, LS
 
     WKLSCopyDefaultRoleHandlerForContentType roleHandler =
         (WKLSCopyDefaultRoleHandlerForContentType)wk_ls_sym("LSCopyDefaultRoleHandlerForContentType");
-    if (!roleHandler || !inContentType) {
+    if (!inContentType) {
         wk_ls_set_error(outError, WKLSApplicationNotFoundErr);
         return NULL;
     }

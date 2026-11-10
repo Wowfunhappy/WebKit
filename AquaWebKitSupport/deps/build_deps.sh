@@ -20,7 +20,7 @@
 #   libpng 1.6.43 (static)              -> WebCore's PNGImageDecoder
 #   libjpeg-turbo 3.1.2 (static)        -> WebCore's JPEGImageDecoder
 #   lcms2 2.16 (static)                 -> ICC conversion for the scalable image decoders
-#   libtiff 4.7.0 (static, on libjpeg)  -> this port's TIFFImageDecoder
+#   libtiff 4.7.2 (static, on libjpeg)  -> this port's TIFFImageDecoder
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
 #   libjxl 0.12.0 (static decoder, on   -> WebCore's JPEGXLImageDecoder (10.9's ImageIO
@@ -103,11 +103,7 @@ SDK="${AQUAWEBKIT_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 # The media-runtime versions. AquaWebKitSupport/cmake/OptionsMacGStreamer.cmake states the same
 # numbers to WebKit's build as GSTREAMER_VERSION/GLIB_VERSION.
 GST_VER=1.28.7
-GLIB_VER=2.80.5
-
-# glib's libffi wrap tracks the meson-ports "meson" BRANCH; this pins it to an exact
-# commit so the build is reproducible (update deliberately, with a rebuild).
-LIBFFI_REV=83d0cfd00d7d37af4b4349511d29f1f0512621b3
+GLIB_VER=2.90.1
 
 # The in-tree clang ships the libc++ dylibs but not its headers; those live in the SDK.
 # clang on Darwin reads SDKROOT as the default -isysroot, so this puts <memory>/<string>
@@ -417,7 +413,6 @@ recipe_key() {
     case "$section" in *HTTPD_*)              printf 'HTTPD_INPUT_KEY=%s\n' "$HTTPD_INPUT_KEY";; esac
     case "$section" in *GST_VER*)             printf 'GST_VER=%s\n' "$GST_VER";; esac
     case "$section" in *GLIB_VER*)            printf 'GLIB_VER=%s\n' "$GLIB_VER";; esac
-    case "$section" in *LIBFFI_REV*)          printf 'LIBFFI_REV=%s\n' "$LIBFFI_REV";; esac
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
 }
 
@@ -672,13 +667,13 @@ if ! built lcms2 install/lib/liblcms2.a; then
     finished lcms2 "$d"
 fi
 
-echo "==== libtiff 4.7.0 ===="
+echo "==== libtiff 4.7.2 ===="
 # TIFFImageDecoder (AquaWebKitSupport/source). TIFF is the macOS pasteboard's image currency --
 # Pasteboard::write(PasteboardImage) writes public.tiff and Pasteboard::read hands image/tiff to the
 # editor -- so copy-image and paste-image both need a TIFF decoder that is not ImageIO's.
 # JPEG-in-TIFF is common enough (scanners, digital cameras) to link the libjpeg above; the other
 # optional codecs and the command-line tools have no caller here.
-u=https://download.osgeo.org/libtiff/tiff-4.7.0.tar.gz
+u=https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz
 if ! built libtiff install/lib/libtiff.a; then
     d=$(get "$u" libtiff)
     ( cd "$d" && mkdir -p out && cd out \
@@ -688,7 +683,7 @@ if ! built libtiff install/lib/libtiff.a; then
            ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
            -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
            -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-docs=OFF -Dtiff-contrib=OFF \
-           -Dtiff-deprecated=OFF -Dcxx=OFF -Dzlib=ON -Djpeg=ON -Dold-jpeg=OFF \
+           -Dtiff-deprecated=OFF -Dtiff-cxx=OFF -Dzlib=ON -Djpeg=ON -Dold-jpeg=OFF \
            -Dwebp=OFF -Dzstd=OFF -Dlzma=OFF -Djbig=OFF -Dlerc=OFF -Dlibdeflate=OFF \
            -DJPEG_INCLUDE_DIR="$STAGE/include" -DJPEG_LIBRARY="$STAGE/lib/libjpeg.a" \
            -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib .. \
@@ -1142,24 +1137,22 @@ fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
 
 echo "==== GLib $GLIB_VER ===="
-# GLib's bundled subprojects come from meson wraps. The wrap-file tarballs pre-cache
-# into subprojects/packagecache (meson verifies their hashes); the wrap-git ones
-# land as plain directories at a pinned revision (gvdb/proxy-libintl by upstream URL,
-# libffi by $LIBFFI_REV because its upstream wrap floats on a branch).
+# GLib's bundled subprojects come from meson wraps. The wrap-file sources pre-cache into
+# subprojects/packagecache, where meson checks them against the wraps' hashes; gvdb, the one
+# wrap-git, ships inside the release tarball at the revision its wrap names.
 d=$(get https://download.gnome.org/sources/glib/${GLIB_VER%.*}/glib-$GLIB_VER.tar.xz glib) || exit 1
 if prepare "$d"; then
+    # GLib's meson refuses a deployment target below macOS 10.13; the gap archive above supplies
+    # what it calls that 10.9 lacks. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/glib-macos-deployment-target.patch" \
+        && patch -p1 < "$HERE/patches/glib-macos-deployment-target.patch" ) \
+      || { echo "GLib deployment-target patch failed to apply"; exit 1; }
     ( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
-      && fetch_cached https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
-      && fetch_cached https://wrapdb.mesonbuild.com/v2/pcre2_10.42-2/get_patch pcre2_10.42-2_patch.zip \
-      && fetch_cached https://zlib.net/fossils/zlib-1.2.11.tar.gz zlib-1.2.11.tar.gz \
-      && fetch_cached https://wrapdb.mesonbuild.com/v2/zlib_1.2.11-6/get_patch zlib_1.2.11-6_patch.zip ) || exit 1
-    ( cd "$d/subprojects" \
-      && fetch_cached https://gitlab.gnome.org/GNOME/gvdb/-/archive/0854af0fdb6d527a8d1999835ac2c5059976c210/gvdb.tar.gz gvdb.tar.gz \
-      && tar xzf gvdb.tar.gz && rm -rf gvdb && mv gvdb-0854af0* gvdb \
-      && fetch_cached "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/$LIBFFI_REV/libffi-$LIBFFI_REV.tar.gz" libffi-meson.tar.gz \
-      && tar xzf libffi-meson.tar.gz && rm -rf libffi && mv "libffi-$LIBFFI_REV" libffi \
-      && fetch_cached https://github.com/frida/proxy-libintl/archive/refs/tags/0.4.tar.gz proxy-libintl-0.4.tar.gz \
-      && tar xzf proxy-libintl-0.4.tar.gz && rm -rf proxy-libintl && mv proxy-libintl-0.4 proxy-libintl ) || exit 1
+      && fetch_cached https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.46/pcre2-10.46.tar.bz2 pcre2-10.46.tar.bz2 \
+      && fetch_cached https://wrapdb.mesonbuild.com/v2/pcre2_10.46-1/get_patch pcre2_10.46-1_patch.zip \
+      && fetch_cached https://github.com/libffi/libffi/releases/download/v3.5.2/libffi-3.5.2.tar.gz libffi-3.5.2.tar.gz \
+      && fetch_cached https://wrapdb.mesonbuild.com/v2/libffi_3.5.2-1/get_patch libffi_3.5.2-1_patch.zip \
+      && fetch_cached https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz proxy-libintl-0.5.tar.gz ) || exit 1
     # Keep the pinned subprojects in the build graph even when their installed copies are present.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" --force-fallback-for=libpcre2-8,libffi \
         -Ddefault_library=shared -Dbuildtype=release \
@@ -1191,12 +1184,10 @@ if prepare "$d"; then
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
-# gst-plugins-good's mpg123 decoder. decodebin inserts a parser only when the decoder asks for one:
-# avdec_mp3's sink caps are plain audio/mpeg with no parsed=true, so decodebin wires the typefinder
-# straight to it and mpegaudioparse never runs -- the Xing/LAME gapless header goes unread and an mp3
-# decodes with its encoder delay and padding still in it. mpg123audiodec demands parsed=true, which puts
-# mpegaudioparse back in the chain. Measured on half-a-second-48000.mp3: decodebin alone answers 26496
-# frames where mpegaudioparse ! avdec_mp3 answers the correct 24000.
+# gst-plugins-good's mpg123 decoder, the MPEG-1/2 audio decoder. decodebin inserts a parser only when
+# the decoder asks for one; mpg123audiodec demands parsed=true, which puts mpegaudioparse in the chain
+# to read the Xing/LAME gapless header, so an mp3 decodes without its encoder delay and padding
+# (half-a-second-48000.mp3: 24000 frames).
 d=$(get https://www.mpg123.de/download/mpg123-1.32.10.tar.bz2 mpg123) || exit 1
 if prepare "$d"; then
     # libgstmpg123 links libmpg123 alone, so that is the only component built.
@@ -1627,7 +1618,9 @@ fi
   && "$MESON" install -C b ) || exit 1
 
 echo "==== gst-plugins-good ===="
-# Native HLS and DASH use gst-plugins-bad's legacy demuxers through webkitwebsrc.
+# HLS plays through adaptivedemux2's hlsdemux2, fetching through webkitwebsrc (the
+# uri-source-transfers patch below). flx, y4m, auparse and multipart are off: no WebKit path,
+# advertised type or stream inside one uses their elements.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
     ( cd "$d" && patch -p1 < "$HERE/patches/gst-plugins-good-rtpmp4gpay-channel-count.patch" ) || exit 1
@@ -1713,6 +1706,7 @@ if prepare "$d"; then
       || { echo "FATAL: gst-plugins-good hlsdemux2 PKCS7 padding patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
+        -Dflx=disabled -Dy4m=disabled -Dauparse=disabled -Dmultipart=disabled \
         -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl ) || exit 1
     prepared "$d"
 fi
@@ -1722,7 +1716,8 @@ fi
 echo "==== gst-plugins-bad ===="
 # webp is off because the plugin has no caller: WebP images decode in WebCore's own
 # WEBPImageDecoder. The WebRTC plugin set (webrtc, dtls, srtp, sctp, webrtcdsp) is off: WebRTC is
-# libwebrtc, inside WebCore.
+# libwebrtc, inside WebCore. dash, smoothstreaming, mxf, pnm, ivfparse and midi are off: no WebKit
+# path, advertised type or stream inside one uses their elements.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad) || exit 1
 if prepare "$d"; then
     # vtdec_hw inherits a sink template advertising codecs the machine cannot
@@ -1805,7 +1800,8 @@ if prepare "$d"; then
     # aes is disabled: WebKit uses hlsdemux2's EVP decryption and has no aesenc/aesdec caller. hls is
     # disabled: HLS plays through hlsdemux2 (gst-plugins-good).
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
-        -Daes=disabled -Dhls=disabled -Ddash=enabled \
+        -Daes=disabled -Dhls=disabled -Ddash=disabled -Dsmoothstreaming=disabled -Dmxf=disabled \
+        -Dpnm=disabled -Divfparse=disabled -Dmidi=disabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dfdkaac=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
     prepared "$d"
@@ -1888,10 +1884,23 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
         && patch -p1 < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" ) \
       || { echo "FFmpeg hevc-alpha VPS patch failed to apply"; exit 1; }
+    # Only the components the port runs are built. Decoders: H.264, HEVC, MPEG-4 Part 2, MPEG-1/2
+    # video (through mpeg2video), H.263, Sorenson Spark, Microsoft Video 1, AC-3, E-AC-3 and DTS,
+    # which GStreamerRegistryScanner advertises (vtdec, ranked below them, is 10.9's VideoToolbox
+    # for H.264 and MPEG-2, and nothing else decodes the rest); AAC for the streams
+    # fdkaacdec's caps refuse (more than eight channels) and LOAS/LATM; ALAC for MediaRecorder's own
+    # recordings; IMA4 ADPCM in QuickTime and Flash ADPCM in FLV, which qtdemux and flvdemux emit and
+    # nothing else decodes; AV1 through libdav1d. libheif uses the HEVC parser. The UT Video encoder feeds
+    # MediaRestreamCapture and the MP4 muxer MediaRecorderPrivateWriterMP4; both, like gst-libav,
+    # read and write through their own I/O.
     ( cd "$d" && ./configure --cc="$CC" --prefix="$STAGE" --install-name-dir='@rpath' \
         --enable-shared --disable-static --disable-programs --disable-doc --disable-debug \
         --disable-audiotoolbox --disable-videotoolbox --disable-securetransport \
         --disable-iconv --disable-lzma --disable-sdl2 --disable-xlib --disable-coreimage \
+        --disable-avdevice --disable-swresample --disable-swscale --disable-network \
+        --disable-everything \
+        --enable-decoder=aac,aac_latm,ac3,adpcm_ima_qt,adpcm_swf,alac,dca,eac3,flv,h263,h264,hevc,libdav1d,mpeg2video,mpeg4,msvideo1 \
+        --enable-encoder=utvideo --enable-muxer=mp4 --enable-parser=hevc \
         --enable-libdav1d \
         --x86asmexe="$NASM" \
         --extra-cflags="-mmacosx-version-min=10.9" \

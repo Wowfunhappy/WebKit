@@ -1,0 +1,23 @@
+# GLib's meson build refuses a macOS deployment target below 10.13 (GLib issue #3441). This
+# runtime deploys to 10.9: every function GLib calls that 10.9's libSystem and frameworks lack
+# is defined by the gap archive build_deps.sh force-loads into GLib (openat, fstatat, fdopendir,
+# faccessat, utimensat and the two LaunchServices lookups gosxappinfo makes), and the
+# undefined-references gate holds the result to what 10.9 provides. The patch removes the check.
+#
+# Applied by build_deps with patch -p1.
+--- a/meson.build
++++ b/meson.build
+@@ -1007,13 +1007,6 @@
+ if host_system == 'darwin' and subsystem == 'macos'
+   add_languages('objc', native: false, required: true)
+   objcc = meson.get_compiler('objc')
+-  if not objcc.compiles('''#include <AvailabilityMacros.h>
+-                           #if MAC_OS_X_VERSION_MIN_REQUIRED < 101300
+-                           #error message "GLib requires macOS 10.13 or later."
+-                           #endif''',
+-                         name : 'macOS 10.13 or later')
+-    error('GLib requires macOS 10.13 or later.')
+-  endif
+ 
+   # Mac OS X Carbon support
+   glib_have_carbon = objcc.compiles('''#include <Carbon/Carbon.h>
