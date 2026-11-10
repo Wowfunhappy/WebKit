@@ -176,6 +176,8 @@ private:
     bool m_allowOverwriteDownload { false };
     bool m_authResponseApproved { false };
     bool m_proxyResponseApproved { false };
+    // CocoaCurlTransferResponse::tunnelChallenge of the response in hand.
+    bool m_tunnelChallenge { false };
     RefPtr<CurlNetworkScheduler> m_scheduler;
     std::unique_ptr<WebCore::CurlMultipartHandle> m_multipart;
     bool m_deliversUnsplitBody { false };

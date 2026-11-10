@@ -593,7 +593,8 @@ void NetworkDataTaskCurlCocoa::authenticate(bool proxy)
         if (protectedThis->m_state != State::Running)
             return;
         if (disposition == AuthenticationChallengeDisposition::Cancel) {
-            protectedThis->finish(NSURLErrorUserCancelledAuthentication, "Authentication cancelled"_s);
+            auto error = cocoaCurlCancelledAuthenticationError(protectedThis->m_request.url());
+            protectedThis->finish(error.errorCode(), error.localizedDescription(), error);
             return;
         }
         // The transport cannot answer an OAuth challenge with a credential, so the 401 is the load's response.
@@ -813,6 +814,12 @@ void NetworkDataTaskCurlCocoa::publishResponse()
 {
     if (m_state != State::Running)
         return;
+    // Stock CFNetwork, measured on this host, delivers a CONNECT's 407 left without a credential as the load's
+    // response. The transfer fails it as a refused tunnel instead.
+    if (m_tunnelChallenge) {
+        continueTransfer();
+        return;
+    }
     if (m_responseNeedsSniff && !m_result) {
         continueTransfer();
         return;
@@ -1138,6 +1145,7 @@ void NetworkDataTaskCurlCocoa::curlReceivedResponse(CocoaCurlTransferResponse&& 
         }
     }
     m_status = m_response.httpStatusCode();
+    m_tunnelChallenge = response.tunnelChallenge;
     m_availableAuthentication = response.authentication;
     m_availableProxyAuthentication = response.proxyAuthentication;
     if (m_proxyHost != response.proxyHost || m_proxyPort != response.proxyPort) {

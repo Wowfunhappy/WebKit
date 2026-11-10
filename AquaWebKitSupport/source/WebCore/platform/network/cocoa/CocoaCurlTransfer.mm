@@ -49,6 +49,7 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringToIntegerConversion.h>
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cmath>
 
@@ -347,6 +348,65 @@ void clearCocoaCurlHTTPBody(ResourceRequest& request)
     [native setHTTPBody:nil];
     [native setHTTPBodyStream:nil];
     request.updateFromDelegatePreservingOldProperties(ResourceRequest(native.get()));
+}
+
+static NSMutableDictionary *failingURLUserInfo(const URL& url)
+{
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:url.string().createNSString().get() forKey:NSURLErrorFailingURLStringErrorKey];
+    if (auto nsURL = url.createNSURL())
+        userInfo[NSURLErrorFailingURLErrorKey] = nsURL.get();
+    return userInfo;
+}
+
+ResourceError cocoaCurlCancelledAuthenticationError(const URL& url)
+{
+    return ResourceError([NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorUserCancelledAuthentication userInfo:failingURLUserInfo(url)]);
+}
+
+// A string of CFNetwork's, from its Localizable table as CFNetwork's own errors take them.
+static NSString *cfNetworkLocalizedString(CFStringRef key, CFStringRef value)
+{
+    return bridge_cast(adoptCF(CFBundleCopyLocalizedString(CFBundleGetBundleWithIdentifier(CFSTR("com.apple.CFNetwork")), key, value, CFSTR("Localizable")))).autorelease();
+}
+
+// CFNetwork's failure for a tunnel the last server of the route refuses, measured on this host: a redirection is
+// kCFStreamErrorHTTPSProxyFailureUnexpectedResponseToCONNECTMethod, and any other refusal
+// kCFErrorHTTPSProxyConnectionFailure carrying the proxy's address.
+static ResourceError tunnelError(const URL& url, int status, NSData *proxyAddress)
+{
+    bool redirection = status >= 300 && status < 400;
+    auto userInfo = failingURLUserInfo(url);
+    userInfo[NSLocalizedDescriptionKey] = redirection ? cfNetworkLocalizedString(CFSTR("Err311"), CFSTR("There was a problem establishing a secure tunnel through the web proxy server."))
+        : cfNetworkLocalizedString(CFSTR("Err310"), CFSTR("There was a problem communicating with the secure web proxy server (HTTPS)."));
+    userInfo[NSLocalizedRecoverySuggestionErrorKey] = cfNetworkLocalizedString(CFSTR("Please check your proxy settings. For help with this problem, contact your system administrator."), nullptr);
+    if (!redirection && proxyAddress)
+        userInfo[@"NSErrorPeerAddressKey"] = proxyAddress;
+    auto code = redirection ? kCFStreamErrorHTTPSProxyFailureUnexpectedResponseToCONNECTMethod : kCFErrorHTTPSProxyConnectionFailure;
+    return ResourceError([NSError errorWithDomain:(__bridge NSString *)kCFErrorDomainCFNetwork code:code userInfo:userInfo]);
+}
+
+// The address curl connected to, as the sockaddr CFNetwork reports a peer with.
+static NSData *connectedAddress(CURL* easy)
+{
+    char* ip = nullptr;
+    long port = 0;
+    if (curl_easy_getinfo(easy, CURLINFO_PRIMARY_IP, &ip) != CURLE_OK || !ip || curl_easy_getinfo(easy, CURLINFO_PRIMARY_PORT, &port) != CURLE_OK)
+        return nil;
+    sockaddr_in address4 { };
+    if (inet_pton(AF_INET, ip, &address4.sin_addr) == 1) {
+        address4.sin_len = sizeof(address4);
+        address4.sin_family = AF_INET;
+        address4.sin_port = htons(port);
+        return [NSData dataWithBytes:&address4 length:sizeof(address4)];
+    }
+    sockaddr_in6 address6 { };
+    if (inet_pton(AF_INET6, ip, &address6.sin6_addr) == 1) {
+        address6.sin6_len = sizeof(address6);
+        address6.sin6_family = AF_INET6;
+        address6.sin6_port = htons(port);
+        return [NSData dataWithBytes:&address6 length:sizeof(address6)];
+    }
+    return nil;
 }
 
 static NSString *const cocoaCurlCacheResponseTimestampKey = @"WebKitResponseTimestamp";
@@ -833,6 +893,8 @@ bool CocoaCurlTransfer::startProxyRoute()
         m_tlsProxy = server;
     else
         m_tlsProxy = std::nullopt;
+    // The origin's TLS state is the connection's, and each server of the route makes a connection of its own.
+    m_tls = nullptr;
     m_response.proxyHost = isProxy ? server.host : emptyString();
     m_response.proxyPort = isProxy ? server.port : 0;
     // A challenge's credential for this proxy, or the credential the proxy's settings carry.
@@ -850,15 +912,23 @@ bool CocoaCurlTransfer::startProxyRoute()
 }
 
 // Chromium reports a load that fails to reach its proxy as net::ERR_PROXY_CONNECTION_FAILED to proxy.onProxyError,
-// and tries the next proxy a route names first.
+// and tries the next proxy a route names first. CFNetwork, measured on this host, also tries it after a proxy refuses
+// the CONNECT with a status other than a redirection or 407.
 bool CocoaCurlTransfer::failOverProxy(CURLcode result)
 {
-    if (m_response.proxyHost.isEmpty() || m_status >= 0 || m_publishedResponse)
+    if (m_response.proxyHost.isEmpty() || m_publishedResponse)
         return false;
-    bool connectionFailed = result == CURLE_COULDNT_CONNECT || result == CURLE_COULDNT_RESOLVE_PROXY || result == CURLE_OPERATION_TIMEDOUT;
-    if (!connectionFailed && result != CURLE_PROXY)
+    bool connectionFailed = m_status < 0 && (result == CURLE_COULDNT_CONNECT || result == CURLE_COULDNT_RESOLVE_PROXY || result == CURLE_OPERATION_TIMEDOUT);
+    bool tunnelRefused = isFailOverTunnelStatus(m_tunnelStatus);
+    if (!connectionFailed && !tunnelRefused && (m_status >= 0 || result != CURLE_PROXY))
         return false;
     if (!m_proxyRoute.isEmpty()) {
+        m_status = -1;
+        m_tunnelStatus = 0;
+        m_responseHeaders = { };
+        m_contentType = { };
+        m_statusText = { };
+        m_version = { };
         m_scheduler->runLoop().dispatch([transfer = Ref { *this }] {
             if (!transfer->m_running)
                 return;
@@ -949,57 +1019,62 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL* easy, void* context, void* 
     state.presentsPreferredIdentity = transfer.m_options.presentsPreferredIdentity;
     state.acceptedChain = transfer.m_options.acceptedCertificateChain;
     state.allowedTrust = transfer.m_options.allowedServerTrust;
+    std::weak_ptr<CocoaCurlTLSState> weakState = transfer.m_tls;
     // keychain access is an asynchronous native operation; no SSL handle crosses into its work queue.
-    state.requestSignature = [weakTransfer = WeakPtr { transfer }](SecKeyAlgorithm algorithm, RetainPtr<CFDataRef>&& data) {
+    state.requestSignature = [weakTransfer = WeakPtr { transfer }, weakState](SecKeyAlgorithm algorithm, RetainPtr<CFDataRef>&& data) {
         RefPtr transfer = weakTransfer.get();
         RefPtr client = transfer ? transfer->m_client : nullptr;
-        if (!transfer || !transfer->m_running || !client || !transfer->m_tls->privateKey)
+        auto state = transfer ? transfer->currentTLSState(weakState) : nullptr;
+        if (!state || !client || !state->privateKey)
             return false;
         ++transfer->m_clientInteractions;
         transfer->m_timer.stop();
-        RetainPtr key = transfer->m_tls->privateKey;
+        RetainPtr key = state->privateKey;
         static NeverDestroyed<Ref<ConcurrentWorkQueue>> signingQueue = ConcurrentWorkQueue::create("Cocoa keychain signing"_s);
-        signingQueue.get()->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), key = WTF::move(key), algorithm = retainPtr(algorithm), data = WTF::move(data)]() mutable {
+        signingQueue.get()->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), weakState, key = WTF::move(key), algorithm = retainPtr(algorithm), data = WTF::move(data)]() mutable {
             CFErrorRef rawError = nullptr;
             auto signature = adoptCF(SecKeyCreateSignature(key.get(), algorithm.get(), data.get(), &rawError));
             auto error = adoptCF(rawError);
             Ref worker { transfer->m_scheduler->runLoop() };
-            worker->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), signature = WTF::move(signature), error = WTF::move(error)]() mutable {
+            worker->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), weakState = WTF::move(weakState), signature = WTF::move(signature), error = WTF::move(error)]() mutable {
                 --transfer->m_clientInteractions;
-                if (!transfer->m_running)
+                auto state = transfer->currentTLSState(weakState);
+                if (!state)
                     return;
-                transfer->m_tls->signature = WTF::move(signature);
-                transfer->m_tls->signingError = WTF::move(error);
-                transfer->m_tls->signingComplete = true;
+                state->signature = WTF::move(signature);
+                state->signingError = WTF::move(error);
+                state->signingComplete = true;
                 transfer->resumeTransfer();
             });
         });
         return true;
     };
-    state.requestVerification = [weakTransfer = WeakPtr { transfer }](std::unique_ptr<CocoaCurlTLSVerification>&& verification) {
+    state.requestVerification = [weakTransfer = WeakPtr { transfer }, weakState](std::unique_ptr<CocoaCurlTLSVerification>&& verification) {
         RefPtr transfer = weakTransfer.get();
         RefPtr client = transfer ? transfer->m_client : nullptr;
-        if (!transfer || !transfer->m_running || !client)
+        if (!transfer || !transfer->currentTLSState(weakState) || !client)
             return false;
         ++transfer->m_clientInteractions;
         transfer->m_timer.stop();
         // Keep the bridge (and therefore its session worker) alive through cancellation. Both client and transfer references return to the curl worker for release.
-        cocoaCurlTrustEvaluationQueue().postTask([client = WTF::move(client), transfer = WTF::move(transfer), verification = WTF::move(verification)]() mutable {
+        cocoaCurlTrustEvaluationQueue().postTask([client = WTF::move(client), transfer = WTF::move(transfer), weakState, verification = WTF::move(verification)]() mutable {
             verification->evaluate();
             Ref worker { transfer->m_scheduler->runLoop() };
-            worker->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), verification = WTF::move(verification)]() mutable {
-                if (!transfer->m_running) {
+            worker->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), weakState = WTF::move(weakState), verification = WTF::move(verification)]() mutable {
+                auto state = transfer->currentTLSState(weakState);
+                if (!state) {
                     --transfer->m_clientInteractions;
                     return;
                 }
-                verification->apply(*transfer->m_tls);
-                client->curlRequestedServerTrust([transfer](bool accepted) {
+                verification->apply(*state);
+                client->curlRequestedServerTrust([transfer, weakState = WTF::move(weakState)](bool accepted) {
                     ASSERT(transfer->m_scheduler->runLoop().isCurrent());
                     --transfer->m_clientInteractions;
-                    if (!transfer->m_running)
+                    auto state = transfer->currentTLSState(weakState);
+                    if (!state)
                         return;
-                    transfer->m_tls->accepted = accepted;
-                    transfer->m_tls->evaluated = true;
+                    state->accepted = accepted;
+                    state->evaluated = true;
                     transfer->resumeTransfer();
                 });
             });
@@ -1007,61 +1082,72 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL* easy, void* context, void* 
         return true;
     };
     // The keychain lookup and the chain's trust evaluation leave the curl worker, as signing does.
-    state.requestPreferredIdentity = [weakTransfer = WeakPtr { transfer }] {
+    state.requestPreferredIdentity = [weakTransfer = WeakPtr { transfer }, weakState] {
         RefPtr transfer = weakTransfer.get();
-        if (!transfer || !transfer->m_running)
+        auto state = transfer ? transfer->currentTLSState(weakState) : nullptr;
+        if (!state)
             return false;
         ++transfer->m_clientInteractions;
         transfer->m_timer.stop();
-        auto url = transfer->m_tls->url.isolatedCopy();
+        auto url = state->url.isolatedCopy();
         static NeverDestroyed<Ref<ConcurrentWorkQueue>> lookupQueue = ConcurrentWorkQueue::create("Cocoa keychain identity preference"_s);
-        lookupQueue.get()->dispatch([transfer = WTF::move(transfer), url = WTF::move(url)]() mutable {
+        lookupQueue.get()->dispatch([transfer = WTF::move(transfer), weakState, url = WTF::move(url)]() mutable {
             auto preferred = CocoaCurlTLSState::preferredIdentity(url);
             Ref worker { transfer->m_scheduler->runLoop() };
-            worker->dispatch([transfer = WTF::move(transfer), preferred = WTF::move(preferred)]() mutable {
+            worker->dispatch([transfer = WTF::move(transfer), weakState = WTF::move(weakState), preferred = WTF::move(preferred)]() mutable {
                 --transfer->m_clientInteractions;
-                if (!transfer->m_running)
+                auto state = transfer->currentTLSState(weakState);
+                if (!state)
                     return;
                 if (preferred) {
-                    transfer->m_tls->identity = WTF::move(preferred->identity);
-                    transfer->m_tls->clientCertificates = WTF::move(preferred->certificates);
-                    transfer->m_tls->identityAnswered = true;
+                    state->identity = WTF::move(preferred->identity);
+                    state->clientCertificates = WTF::move(preferred->certificates);
+                    state->identityAnswered = true;
                 }
-                transfer->m_tls->preferredIdentityResolved = true;
+                state->preferredIdentityResolved = true;
                 transfer->resumeTransfer();
             });
         });
         return true;
     };
-    state.requestIdentity = [weakTransfer = WeakPtr { transfer }](SSL* ssl) {
+    state.requestIdentity = [weakTransfer = WeakPtr { transfer }, weakState](SSL* ssl) {
         RefPtr transfer = weakTransfer.get();
-        if (!transfer || !transfer->m_running)
+        if (!transfer || !transfer->currentTLSState(weakState))
             return false;
         ++transfer->m_clientInteractions;
         transfer->m_timer.stop();
         auto authorities = CocoaCurlTLSState::certificateAuthorities(ssl);
-        transfer->m_scheduler->runLoop().dispatch([transfer = WTF::move(transfer), authorities = WTF::move(authorities)] {
+        transfer->m_scheduler->runLoop().dispatch([transfer = WTF::move(transfer), weakState, authorities = WTF::move(authorities)] {
             RefPtr client = transfer->m_running ? transfer->m_client : nullptr;
-            if (!client) {
+            if (!client || !transfer->currentTLSState(weakState)) {
                 --transfer->m_clientInteractions;
-                if (transfer->m_running)
+                if (transfer->m_running && !client)
                     transfer->cancel();
                 return;
             }
-            client->curlRequestedIdentity(authorities.get(), [transfer](RetainPtr<SecIdentityRef>&& identity, RetainPtr<CFArrayRef>&& chain) {
+            client->curlRequestedIdentity(authorities.get(), [transfer, weakState](RetainPtr<SecIdentityRef>&& identity, RetainPtr<CFArrayRef>&& chain) {
                 ASSERT(transfer->m_scheduler->runLoop().isCurrent());
                 --transfer->m_clientInteractions;
-                if (!transfer->m_running)
+                auto state = transfer->currentTLSState(weakState);
+                if (!state)
                     return;
-                transfer->m_tls->identity = WTF::move(identity);
-                transfer->m_tls->clientCertificates = (NSArray *)chain.get();
-                transfer->m_tls->identityAnswered = true;
+                state->identity = WTF::move(identity);
+                state->clientCertificates = (NSArray *)chain.get();
+                state->identityAnswered = true;
                 transfer->resumeTransfer();
             });
         });
         return true;
     };
     return CocoaCurlTLSState::install(static_cast<SSL_CTX*>(context), transfer.m_tls);
+}
+
+// An answer belongs to the handshake that asked for it; one that returns after the transfer has moved to
+// another connection is dropped, as the clients judge the transfer's current state.
+std::shared_ptr<CocoaCurlTLSState> CocoaCurlTransfer::currentTLSState(const std::weak_ptr<CocoaCurlTLSState>& weakState) const
+{
+    auto state = weakState.lock();
+    return m_running && state && state == m_tls ? state : nullptr;
 }
 
 void CocoaCurlTransfer::updateTLS()
@@ -1100,10 +1186,14 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
     long origin = 0, tunnel = 0;
     curl_easy_getinfo(m_easy, CURLINFO_RESPONSE_CODE, &origin);
     curl_easy_getinfo(m_easy, CURLINFO_HTTP_CONNECTCODE, &tunnel);
-    // CONNECT fields belong to the proxy exchange, before origin TLS trust exists.
+    // CONNECT fields belong to the proxy exchange, before origin TLS trust exists. A refused tunnel ends the
+    // transfer with no response of the origin's; its 407 goes to the client only as the proxy's challenge.
     if (!origin && tunnel && tunnel == m_status && m_version != "HTTP/0.9"_s) {
         m_setCookies.clear();
         if (m_status >= 200 && m_status < 300)
+            return HeaderSection::Consumed;
+        m_tunnelStatus = m_status;
+        if (m_status != 407)
             return HeaderSection::Consumed;
     }
     if (m_status < 0) {
@@ -1141,6 +1231,7 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
     if (m_decoder)
         response.setExpectedContentLength(-1);
     m_response.response = WTF::move(response);
+    m_response.tunnelChallenge = m_tunnelStatus == 407;
     m_response.contentType = m_contentType;
     char* canonicalName = nullptr;
     curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_CANONICAL_NAME, &canonicalName);
@@ -1216,6 +1307,7 @@ size_t CocoaCurlTransfer::header(std::span<const char> bytes)
         if (!code)
             return invalidResponse("Invalid HTTP status line"_s);
         m_status = *code;
+        m_tunnelStatus = 0;
         m_version = line.left(space);
         m_statusText = extractReasonPhraseFromHTTPStatusLine(line);
         m_responseHeaders = { };
@@ -1634,6 +1726,10 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         m_scheduler->runLoop().dispatch([transfer = Ref { *this }] { --transfer->m_clientInteractions; transfer->publishResponse(); });
         return;
     }
+    if (m_tunnelStatus) {
+        finish(tunnelError(m_options.request.url(), m_tunnelStatus, connectedAddress(m_easy)));
+        return;
+    }
     // A body that cannot be decoded, or that ends partway through its coding, fails after its response.
     if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_windowFull)) {
         finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
@@ -1707,20 +1803,9 @@ void CocoaCurlTransfer::invalidateClient()
 
 void CocoaCurlTransfer::finish(int code, const String& message)
 {
-    ASSERT(m_scheduler->runLoop().isCurrent());
-    Ref protectedThis { *this };
-    if (std::exchange(m_complete, true))
+    if (m_complete)
         return;
-    m_running = false;
     updateTLS();
-    updateMetrics();
-    m_timer.stop();
-    m_scheduler->remove(m_easy);
-    if (m_routeResolver)
-        m_routeResolver->cancel();
-    closeUpload();
-    m_metrics.responseEnd = MonotonicTime::now();
-    m_metrics.markComplete();
     ResourceError error;
     if (code) {
         auto userInfo = adoptNS([@{
@@ -1750,6 +1835,25 @@ void CocoaCurlTransfer::finish(int code, const String& message)
             userInfo.get()[NSURLErrorFailingURLPeerTrustErrorKey] = (id)m_tls->trust.get();
         error = ResourceError([NSError errorWithDomain:domain code:code userInfo:userInfo.get()]);
     }
+    finish(WTF::move(error));
+}
+
+void CocoaCurlTransfer::finish(ResourceError&& error)
+{
+    ASSERT(m_scheduler->runLoop().isCurrent());
+    Ref protectedThis { *this };
+    if (std::exchange(m_complete, true))
+        return;
+    m_running = false;
+    updateTLS();
+    updateMetrics();
+    m_timer.stop();
+    m_scheduler->remove(m_easy);
+    if (m_routeResolver)
+        m_routeResolver->cancel();
+    closeUpload();
+    m_metrics.responseEnd = MonotonicTime::now();
+    m_metrics.markComplete();
     // The body still waiting behind a delivery goes ahead of the completion.
     if (!m_cancelled && !m_undeliveredData.isEmpty())
         postDelivery();

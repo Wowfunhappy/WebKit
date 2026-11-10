@@ -565,7 +565,7 @@ void CocoaCurlRouteResolver::start()
         protectedThis->finish(routeFromCFProxies(proxies.get()));
     };
     if (m_configuration->mode() == Mode::AutoDetect)
-        m_resolver = CocoaCurlProxyResolver::createForRoutes(m_url, m_configuration->autoDiscoverySettings().get(), WTF::move(completion));
+        m_resolver = CocoaCurlProxyResolver::createForAutoDiscovery(m_url, m_configuration->autoDiscoverySettings().get(), WTF::move(completion));
     else
         m_resolver = CocoaCurlProxyResolver::createForAutoConfiguration(m_url, m_configuration->autoConfigurationProxy().get(), WTF::move(completion));
     m_resolver->start();

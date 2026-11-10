@@ -471,7 +471,7 @@ void CocoaCurlResourceHandle::authenticate(bool proxy)
         auto& attempts = proxy ? loader->m_proxyAuthFailures : loader->m_authFailures;
         bool useKerberosCache = disposition == CocoaCurlAuthenticationDisposition::PerformDefaultHandling && method == CURLAUTH_NEGOTIATE && loader->m_allowCredentials && !attempts;
         if (disposition == CocoaCurlAuthenticationDisposition::Cancel) {
-            loader->fail(NSURLErrorUserCancelledAuthentication, "Authentication cancelled"_s);
+            loader->finish(cocoaCurlCancelledAuthenticationError(loader->m_request.url()));
             return;
         }
         // The transport cannot answer an OAuth challenge with a credential, so the 401 is the load's response.
@@ -517,6 +517,12 @@ void CocoaCurlResourceHandle::publishResponse()
 {
     if (m_cancelled || !m_handle)
         return;
+    // Stock NSURLConnection, measured on this host, delivers a CONNECT's 407 left without a credential as the load's
+    // response. The transfer fails it as a refused tunnel instead.
+    if (m_response.tunnelChallenge) {
+        continueTransfer();
+        return;
+    }
     auto& response = m_response.response;
     if (!m_useResponse && m_sniffed.isEmpty() && !m_result) {
         m_noSniff = !m_handle->shouldContentSniff() || equalLettersIgnoringASCIICase(response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);

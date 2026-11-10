@@ -14,6 +14,13 @@ Ref<CocoaCurlProxyResolver> CocoaCurlProxyResolver::createForRoutes(const URL& u
     return adoptRef(*new CocoaCurlProxyResolver(url, settings, WTF::move(completion)));
 }
 
+Ref<CocoaCurlProxyResolver> CocoaCurlProxyResolver::createForAutoDiscovery(const URL& url, CFDictionaryRef settings, RoutesCompletion&& completion)
+{
+    Ref resolver = createForRoutes(url, settings, WTF::move(completion));
+    resolver->m_keepsEntriesAfterScript = false;
+    return resolver;
+}
+
 Ref<CocoaCurlProxyResolver> CocoaCurlProxyResolver::createForAutoConfiguration(const URL& url, CFDictionaryRef proxy, RoutesCompletion&& completion)
 {
     Ref resolver = createForRoutes(url, nullptr, WTF::move(completion));
@@ -79,6 +86,15 @@ void CocoaCurlProxyResolver::resolved(CFArrayRef proxies, CFErrorRef error)
     m_pacSource = nullptr;
     if (!m_completion)
         return;
+    // CFNetworkCopyProxiesForURL answers a script's entry followed by kCFProxyTypeNone. CFNetwork's loads, measured
+    // on this host, connect directly once the script's proxies have refused them, and when the script cannot be loaded.
+    if (RetainPtr following = std::exchange(m_entriesAfterScript, nullptr)) {
+        if (error || !proxies || !CFArrayGetCount(proxies))
+            return resolved(following.get(), nullptr);
+        auto routes = adoptCF(CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, proxies));
+        CFArrayAppendArray(routes.get(), following.get(), CFRangeMake(0, CFArrayGetCount(following.get())));
+        return finish(routes.get(), { });
+    }
     if (error || !proxies || !CFArrayGetCount(proxies)) {
         String message = error ? String(adoptCF(CFErrorCopyDescription(error)).get()) : "System proxy resolution returned no route"_s;
         finish(nullptr, message);
@@ -103,10 +119,18 @@ void CocoaCurlProxyResolver::resolved(CFArrayRef proxies, CFErrorRef error)
             if (script)
                 m_pacSource = adoptCF(CFNetworkExecuteProxyAutoConfigurationScript(script, url.get(), callback, &context));
         }
+        RetainPtr<CFMutableArrayRef> following;
+        if (m_keepsEntriesAfterScript && CFArrayGetCount(proxies) > 1) {
+            following = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
+            CFArrayAppendArray(following.get(), proxies, CFRangeMake(1, CFArrayGetCount(proxies) - 1));
+        }
         if (!m_pacSource) {
+            if (following)
+                return resolved(following.get(), nullptr);
             finish(nullptr, "Could not execute proxy configuration"_s);
             return;
         }
+        m_entriesAfterScript = WTF::move(following);
         CFRunLoopAddSource(CFRunLoopGetCurrent(), m_pacSource.get(), kCFRunLoopCommonModes);
         return;
     }

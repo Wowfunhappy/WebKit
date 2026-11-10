@@ -153,8 +153,12 @@ CURLcode CocoaCurlSocketStream::installTLS(CURL* easy, void* context, void* data
 {
     auto& stream = *static_cast<CocoaCurlSocketStream*>(data);
     auto* ssl = static_cast<SSL_CTX*>(context);
-    if (stream.m_proxyTLS && CocoaCurlRouteResolver::isProxyHandshake(easy))
-        return CocoaCurlTLSState::installSynchronously(ssl, stream.m_proxyTLS);
+    // curl reconnects to a proxy that closes the connection on its 407; each handshake with it is evaluated afresh.
+    if (!stream.m_proxyTLSURL.isNull() && CocoaCurlRouteResolver::isProxyHandshake(easy)) {
+        auto state = std::make_shared<CocoaCurlTLSState>();
+        state->url = stream.m_proxyTLSURL.isolatedCopy();
+        return CocoaCurlTLSState::installSynchronously(ssl, state);
+    }
     if (stream.m_options.serverTrust == ServerTrust::Native)
         return CocoaCurlTLSState::installSynchronously(ssl, stream.m_tls);
     if (auto code = CocoaCurlTLSState::installWithClientIdentity(ssl, stream.m_tls); code != CURLE_OK)
@@ -190,45 +194,6 @@ void CocoaCurlSocketStream::start()
     curl_easy_setopt(m_curl, CURLOPT_CLOSESOCKETFUNCTION, cocoaCurlSocketGateClose);
     curl_easy_setopt(m_curl, CURLOPT_CLOSESOCKETDATA, m_gate);
     if (m_options.secure) {
-        m_tls = std::make_shared<CocoaCurlTLSState>();
-        // The state is read on the connect queue, so its string may not share a StringImpl with the main thread's.
-        m_tls->url = m_options.url.isolatedCopy();
-        m_tls->acceptAnyCertificate = m_options.acceptsAnyCertificate;
-        m_tls->presentsPreferredIdentity = m_options.presentsPreferredIdentity;
-        // The connect queue is this stream's own, and the handshake on it waits for the lookup.
-        m_tls->requestPreferredIdentity = [tls = m_tls.get()] {
-            if (auto preferred = CocoaCurlTLSState::preferredIdentity(tls->url)) {
-                tls->identity = WTF::move(preferred->identity);
-                tls->clientCertificates = WTF::move(preferred->certificates);
-                tls->identityAnswered = true;
-            }
-            tls->preferredIdentityResolved = true;
-            return true;
-        };
-        if (m_options.serverTrust == ServerTrust::Client) {
-            // Both run on the connect queue inside the handshake, which waits for their answers. The stream outlives
-            // the connect (connect() holds a reference until connectFinished).
-            m_tls->requestIdentity = [this](SSL* ssl) {
-                waitForAnswer([authorities = CocoaCurlTLSState::certificateAuthorities(ssl)](CocoaCurlSocketStream& stream, std::shared_ptr<ClientAnswer>&& answer) mutable {
-                    if (!stream.m_client.requestIdentity)
-                        return stream.answerIdentity(nullptr, nullptr);
-                    stream.m_client.requestIdentity(WTF::move(authorities), [protectedStream = Ref { stream }, answer = WTF::move(answer)](RetainPtr<SecIdentityRef>&& identity, RetainPtr<CFArrayRef>&& chain) mutable {
-                        if (protectedStream->m_pendingAnswer == answer)
-                            protectedStream->answerIdentity(WTF::move(identity), WTF::move(chain));
-                    });
-                });
-                // A stream closed while the question was out has no identity: identityAnswered is set either way.
-                m_tls->identityAnswered = true;
-                return true;
-            };
-            m_tls->requestSignature = [tls = m_tls.get()](SecKeyAlgorithm algorithm, RetainPtr<CFDataRef>&& data) {
-                CFErrorRef error = nullptr;
-                tls->signature = adoptCF(SecKeyCreateSignature(tls->privateKey.get(), algorithm, data.get(), &error));
-                tls->signingError = adoptCF(error);
-                tls->signingComplete = true;
-                return true;
-            };
-        }
         // The certificate is answered for by the system trust store, inside the handshake or by the client; curl's
         // own hostname check is not used because SecPolicyCreateSSL carries the name.
         curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -288,12 +253,8 @@ bool CocoaCurlSocketStream::applyNextServer()
     if (m_proxyRoute.isEmpty())
         server.failoverTimeout = { };
     m_proxyServer = server;
-    m_proxyTLS = nullptr;
-    if (server.type == CocoaCurlProxyServer::Type::HTTPS) {
-        // Read on the connect queue, so its URL shares no StringImpl with the main thread's.
-        m_proxyTLS = std::make_shared<CocoaCurlTLSState>();
-        m_proxyTLS->url = CocoaCurlRouteResolver::tlsURL(server).isolatedCopy();
-    }
+    // Read on the connect queue, so it shares no StringImpl with the main thread's.
+    m_proxyTLSURL = server.type == CocoaCurlProxyServer::Type::HTTPS ? CocoaCurlRouteResolver::tlsURL(server).isolatedCopy() : URL { };
     bool isHTTPProxy = server.type == CocoaCurlProxyServer::Type::HTTP || server.type == CocoaCurlProxyServer::Type::HTTPS;
     m_forwardedByProxy = isHTTPProxy && !m_options.secure && !m_options.tunnelsPlainConnections;
     auto timeout = server.failoverTimeout ? server.failoverTimeout : m_options.connectTimeout;
@@ -305,8 +266,55 @@ bool CocoaCurlSocketStream::applyNextServer()
         && CocoaCurlRouteResolver::applyCredentials(m_curl, server.username, server.password);
 }
 
+// A connection's handshake has a state of its own: a server tried after another failed is evaluated afresh.
+std::shared_ptr<CocoaCurlTLSState> CocoaCurlSocketStream::createTLSState()
+{
+    auto tls = std::make_shared<CocoaCurlTLSState>();
+    // The state is read on the connect queue, so its string may not share a StringImpl with the main thread's.
+    tls->url = m_options.url.isolatedCopy();
+    tls->acceptAnyCertificate = m_options.acceptsAnyCertificate;
+    tls->presentsPreferredIdentity = m_options.presentsPreferredIdentity;
+    // The connect queue is this stream's own, and the handshake on it waits for the lookup.
+    tls->requestPreferredIdentity = [tls = tls.get()] {
+        if (auto preferred = CocoaCurlTLSState::preferredIdentity(tls->url)) {
+            tls->identity = WTF::move(preferred->identity);
+            tls->clientCertificates = WTF::move(preferred->certificates);
+            tls->identityAnswered = true;
+        }
+        tls->preferredIdentityResolved = true;
+        return true;
+    };
+    if (m_options.serverTrust == ServerTrust::Client) {
+        // Both run on the connect queue inside the handshake, which waits for their answers. The stream outlives
+        // the connect (connect() holds a reference until connectFinished).
+        tls->requestIdentity = [this, tls = tls.get()](SSL* ssl) {
+            waitForAnswer([authorities = CocoaCurlTLSState::certificateAuthorities(ssl)](CocoaCurlSocketStream& stream, std::shared_ptr<ClientAnswer>&& answer) mutable {
+                if (!stream.m_client.requestIdentity)
+                    return stream.answerIdentity(nullptr, nullptr);
+                stream.m_client.requestIdentity(WTF::move(authorities), [protectedStream = Ref { stream }, answer = WTF::move(answer)](RetainPtr<SecIdentityRef>&& identity, RetainPtr<CFArrayRef>&& chain) mutable {
+                    if (protectedStream->m_pendingAnswer == answer)
+                        protectedStream->answerIdentity(WTF::move(identity), WTF::move(chain));
+                });
+            });
+            // A stream closed while the question was out has no identity: identityAnswered is set either way.
+            tls->identityAnswered = true;
+            return true;
+        };
+        tls->requestSignature = [tls = tls.get()](SecKeyAlgorithm algorithm, RetainPtr<CFDataRef>&& data) {
+            CFErrorRef error = nullptr;
+            tls->signature = adoptCF(SecKeyCreateSignature(tls->privateKey.get(), algorithm, data.get(), &error));
+            tls->signingError = adoptCF(error);
+            tls->signingComplete = true;
+            return true;
+        };
+    }
+    return tls;
+}
+
 void CocoaCurlSocketStream::connect()
 {
+    if (m_options.secure)
+        m_tls = createTLSState();
     if (!m_connectQueue)
         m_connectQueue = dispatch_queue_create("com.apple.WebKit.SocketStreamConnect", DISPATCH_QUEUE_SERIAL);
     m_connecting = true;
@@ -341,12 +349,15 @@ void CocoaCurlSocketStream::connectFinished(CURLcode code, curl_socket_t connect
         return;
     }
     if (code != CURLE_OK) {
-        // A proxy that could not be reached, before it answered the CONNECT, gives way to the route's next server.
+        // A proxy that could not be reached before it answered the CONNECT, or that refused it as
+        // CocoaCurlTransfer::failOverProxy's do, gives way to the route's next server.
         long connectCode = 0;
         curl_easy_getinfo(m_curl, CURLINFO_HTTP_CONNECTCODE, &connectCode);
-        bool proxyFailed = m_proxyServer && m_proxyServer->type != CocoaCurlProxyServer::Type::Direct && !connectCode
+        bool isProxy = m_proxyServer && m_proxyServer->type != CocoaCurlProxyServer::Type::Direct;
+        bool proxyFailed = isProxy && !connectCode
             && (code == CURLE_COULDNT_CONNECT || code == CURLE_COULDNT_RESOLVE_PROXY || code == CURLE_OPERATION_TIMEDOUT || code == CURLE_PROXY);
-        if (proxyFailed && !m_proxyRoute.isEmpty()) {
+        bool tunnelRefused = isProxy && code == CURLE_COULDNT_CONNECT && isFailOverTunnelStatus(connectCode);
+        if ((proxyFailed || tunnelRefused) && !m_proxyRoute.isEmpty()) {
             if (applyNextServer())
                 return connect();
         } else if (proxyFailed && code != CURLE_PROXY)

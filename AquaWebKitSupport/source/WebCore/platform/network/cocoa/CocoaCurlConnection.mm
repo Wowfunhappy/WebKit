@@ -285,12 +285,12 @@ void CocoaCurlConnection::curlReceivedResponse(CocoaCurlTransferResponse&& respo
     ASSERT(!m_continuation);
     m_continuation = WTF::move(completion);
     auto data = response.response.crossThreadData();
-    deliverToClient([connection = Ref { *this }, data = WTF::move(data), contentType = response.contentType.isolatedCopy(), canonicalName = response.canonicalName.isolatedCopy(), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tls = copyTLSState()]() mutable {
+    deliverToClient([connection = Ref { *this }, data = WTF::move(data), contentType = response.contentType.isolatedCopy(), canonicalName = response.canonicalName.isolatedCopy(), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tunnelChallenge = response.tunnelChallenge, tls = copyTLSState()]() mutable {
         if (connection->m_cancelled)
             return;
         connection->m_tls = WTF::move(tls);
         if (RefPtr client = connection->m_client)
-            client->curlReceivedResponse({ ResourceResponse::fromCrossThreadData(WTF::move(data)), WTF::move(proxy), port, authentication, proxyAuthentication, WTF::move(metrics), WTF::move(contentType), WTF::move(canonicalName) }, [connection] { connection->acknowledge(); });
+            client->curlReceivedResponse({ ResourceResponse::fromCrossThreadData(WTF::move(data)), WTF::move(proxy), port, authentication, proxyAuthentication, WTF::move(metrics), WTF::move(contentType), WTF::move(canonicalName), tunnelChallenge }, [connection] { connection->acknowledge(); });
         else
             connection->cancel();
     });

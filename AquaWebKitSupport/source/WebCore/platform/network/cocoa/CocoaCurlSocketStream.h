@@ -112,6 +112,7 @@ private:
     static enum ssl_verify_result_t verifyPeer(struct ssl_st*, uint8_t* alert);
     void routeResolved(Expected<CocoaCurlProxyRoute, String>&&);
     bool applyNextServer();
+    std::shared_ptr<CocoaCurlTLSState> createTLSState();
     void connect();
     void connectOnQueue();
     void connectFinished(CURLcode, curl_socket_t);
@@ -146,7 +147,8 @@ private:
     curl_slist* m_proxyHeaders { nullptr };
     // The connect limit set on the handle for the server being tried, in milliseconds; 0 for none.
     long m_connectTimeoutMilliseconds { 0 };
-    std::shared_ptr<CocoaCurlTLSState> m_proxyTLS;
+    // An HTTPS proxy's URL for its certificate; null for any other server.
+    URL m_proxyTLSURL;
     bool m_forwardedByProxy { false };
     String m_remoteAddress;
     dispatch_queue_t m_connectQueue { nullptr };

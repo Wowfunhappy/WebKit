@@ -73,6 +73,15 @@ enum class IsNoSniffSet : bool;
 WEBCORE_EXPORT void adjustCocoaCurlMIMETypeIfNecessary(ResourceResponse&, IsMainResourceLoad, IsNoSniffSet);
 WEBCORE_EXPORT void setCocoaCurlContentType(ResourceResponse&, const String& selectedContentType);
 WEBCORE_EXPORT void clearCocoaCurlHTTPBody(ResourceRequest&);
+// CFNetwork's failure for an authentication challenge its delegate cancels: NSURLErrorUserCancelledAuthentication
+// carrying the failing URL alone.
+WEBCORE_EXPORT ResourceError cocoaCurlCancelledAuthenticationError(const URL&);
+// A status a proxy refuses the CONNECT with that gives way to the route's next server, as CFNetwork's does: one
+// that is neither a redirection nor a 407.
+inline bool isFailOverTunnelStatus(int status)
+{
+    return status >= 400 && status != 407;
+}
 
 // The storage session's NSURLCache, consulted and filled as NSURLConnection does for WebKitLegacy
 // loads. Private sessions own a memory-only cache. NSURLDownload consults it and stores nothing.
@@ -146,6 +155,9 @@ struct CocoaCurlTransferResponse {
     NetworkLoadMetrics metrics;
     String contentType;
     String canonicalName;
+    // The proxy's 407 to the CONNECT that opens the tunnel: a challenge for the proxy, never the load's response.
+    // A client that does not restart the load with a credential continues the transfer, which then fails.
+    bool tunnelChallenge { false };
 };
 
 class CocoaCurlTransferClient : public AbstractRefCounted {
@@ -203,6 +215,7 @@ private:
     void updateMetrics();
     bool responseEndsAtConnectionClose() const;
     void finish(int, const String&);
+    void finish(ResourceError&&);
     // Consumed leaves m_finalHeaders telling whether the section was the final one.
     enum class HeaderSection : uint8_t { Rejected, Consumed, AwaitingCookies };
     HeaderSection finalizeHeaders();
@@ -216,6 +229,7 @@ private:
     static int progressCallback(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t);
     static CURLcode sslContextCallback(CURL*, void*, void*);
     CURLcode installProxyTLS(SSL_CTX*);
+    std::shared_ptr<CocoaCurlTLSState> currentTLSState(const std::weak_ptr<CocoaCurlTLSState>&) const;
 
     Ref<CocoaCurlScheduler> m_scheduler;
     CocoaCurlTransferClient* m_client;
@@ -245,6 +259,8 @@ private:
     int m_uploadErrorCode { 0 };
     // 0 is a status a response may actually carry, so absence is -1.
     int m_status { -1 };
+    // The status of a non-2xx reply to the CONNECT that opens the tunnel; 0 while no proxy has refused it.
+    int m_tunnelStatus { 0 };
     uint64_t m_uploaded { 0 };
     MonotonicTime m_started;
     NetworkLoadMetrics m_metrics;

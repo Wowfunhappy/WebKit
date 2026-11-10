@@ -108,6 +108,7 @@ private:
     void fail(NSInteger, NSString *);
     void challenge(NSURLProtectionSpace *, NSUInteger failures, NSURLCredential *, Function<void(NSURLCredential *, bool, bool)>&&);
     void authenticate(bool, long);
+    void receiveFinalResponse();
     void redirect();
     void prepareDestination();
     bool write(std::span<const uint8_t>);
@@ -459,11 +460,29 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
             return;
         }
     }
-    // Stock NSURLDownload, measured on this host: a download started from a request fails a 404, 410
-    // or 500 with NSURLErrorFileDoesNotExist; a response adopted from a navigation is saved whatever
-    // its status.
-    if (m_startedFromRequest && status >= 400) {
-        fail(NSURLErrorFileDoesNotExist, @"The server rejected the download request");
+    receiveFinalResponse();
+}
+
+// Stock NSURLDownload's failure for a response it does not save, measured on this host: NSURLErrorFileDoesNotExist
+// over CFNetwork's own, carrying the failing URL.
+static NSError *rejectedResponseError(const URL& url)
+{
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:[NSError errorWithDomain:(__bridge NSString *)kCFErrorDomainCFNetwork code:NSURLErrorFileDoesNotExist userInfo:nil] forKey:NSUnderlyingErrorKey];
+    userInfo[NSURLErrorFailingURLStringErrorKey] = url.string().createNSString().get();
+    if (auto nsURL = url.createNSURL())
+        userInfo[NSURLErrorFailingURLErrorKey] = nsURL.get();
+    return [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:userInfo];
+}
+
+// The response the download takes, once no credential answers it.
+void WebDownloadCurlClient::receiveFinalResponse()
+{
+    int status = m_response.response.httpStatusCode();
+    // Stock NSURLDownload, measured on this host: a download started from a request fails a 404, 410 or 500, or a 401
+    // or 407 left without a credential, with NSURLErrorFileDoesNotExist; a response adopted from a navigation is saved
+    // whatever its status. A CONNECT's 407 is never saved.
+    if ((m_startedFromRequest && status >= 400) || m_response.tunnelChallenge) {
+        finish(rejectedResponseError(m_request.url()));
         return;
     }
     if (m_resume) {
@@ -636,14 +655,15 @@ void WebDownloadCurlClient::authenticate(bool proxy, long method)
         if (protectedThis->m_finished)
             return;
         if (cancelled) {
-            protectedThis->fail(NSURLErrorUserCancelledAuthentication, @"Authentication cancelled");
+            protectedThis->finish(cocoaCurlCancelledAuthenticationError(protectedThis->m_request.url()).nsError());
             return;
         }
         auto& failures = proxy ? protectedThis->m_proxyFailures : protectedThis->m_authFailures;
         bool kerberos = useDefault && method == CURLAUTH_NEGOTIATE && protectedThis->m_allowCredentials && !failures;
-        // The transport cannot answer an OAuth challenge with a credential.
+        // The transport cannot answer an OAuth challenge with a credential. A challenge left without one leaves
+        // its response the download's, as stock NSURLDownload continues without a credential.
         if ((!credential && !kerberos) || method == cocoaCurlOAuthAuthentication) {
-            protectedThis->fail(NSURLErrorUserAuthenticationRequired, @"The download requires authentication");
+            protectedThis->receiveFinalResponse();
             return;
         }
         ++failures;

@@ -17,7 +17,11 @@ namespace WebCore {
 class WEBCORE_EXPORT CocoaCurlProxyResolver final : public RefCounted<CocoaCurlProxyResolver> {
 public:
     using RoutesCompletion = CompletionHandler<void(RetainPtr<CFArrayRef>&&, const String& error)>;
+    // CFNetwork's routes: a proxy auto-configuration entry's are followed by the entries after it, which stand in
+    // for them when its script fails.
     static Ref<CocoaCurlProxyResolver> createForRoutes(const URL&, CFDictionaryRef configuredSettings, RoutesCompletion&&);
+    // The routes WPAD discovery's script answers with alone, as Chromium's auto_detect mode takes them.
+    static Ref<CocoaCurlProxyResolver> createForAutoDiscovery(const URL&, CFDictionaryRef settings, RoutesCompletion&&);
     // The routes a proxy auto-configuration entry (kCFProxyTypeAutoConfigurationURL or JavaScript) answers with.
     static Ref<CocoaCurlProxyResolver> createForAutoConfiguration(const URL&, CFDictionaryRef proxy, RoutesCompletion&&);
     ~CocoaCurlProxyResolver();
@@ -32,6 +36,9 @@ private:
     RetainPtr<CFDictionaryRef> m_settings;
     RetainPtr<CFDictionaryRef> m_autoConfiguration;
     RetainPtr<CFRunLoopSourceRef> m_pacSource;
+    bool m_keepsEntriesAfterScript { true };
+    // The entries after the auto-configuration entry whose script is running.
+    RetainPtr<CFArrayRef> m_entriesAfterScript;
     RoutesCompletion m_completion;
 };
 } // namespace WebCore
