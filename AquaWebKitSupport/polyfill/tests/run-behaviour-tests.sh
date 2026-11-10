@@ -439,6 +439,14 @@ probe_accelerate_converter_ramp() {
         "$T/accelerate_converter_ramp" && "$T/accelerate_converter_ramp_without_initializer" --without-initializer
 }
 
+probe_accelerate_converter_table_cache() {
+    "$CLANG" $HOST -o "$T/accelerate_converter_table_cache" "$TBEHAV/Accelerate-converter-table-cache.c" \
+        $PROBE_LIBS -framework ApplicationServices -framework Accelerate &&
+        "$CLANG" $HOST -o "$T/accelerate_converter_table_cache_without_polyfill" "$TBEHAV/Accelerate-converter-table-cache.c" \
+            -framework ApplicationServices -framework Accelerate &&
+        "$T/accelerate_converter_table_cache" && "$T/accelerate_converter_table_cache_without_polyfill" --without-polyfill
+}
+
 probe_cg_radial_coinciding() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/cg_radial_coinciding" \
         "$TBEHAV/CoreGraphics-radial-coinciding.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
@@ -1275,6 +1283,7 @@ run_probe cg_focus_ring "$@"
 run_probe cg_blend_read_back "$@"
 run_probe cg_linear_srgb "$@"
 run_probe accelerate_converter_ramp "$@"
+run_probe accelerate_converter_table_cache "$@"
 run_probe cg_layer_context_colorspace "$@"
 run_probe coreimage_builtins "$@"
 run_probe task_metrics_relay "$@"
