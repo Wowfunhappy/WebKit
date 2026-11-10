@@ -17,6 +17,18 @@
 // a read that lands anywhere inside the table is performed with whatever bytes are there. The model
 // therefore bounds every read by the whole table (length) and treats an out-of-table read as a dead end.
 //
+// Chains and subtables are walked the same way: NextChain (0xd186) and NextSubtable (0xd7d4) bound only
+// each 16- and 12-byte header against the table, never a length against its chain: the walk ends at the
+// first header that does not fit in the table, and goes on through any other. A table is therefore kept
+// only when every chain it walks lies inside it and every subtable inside its chain.
+//
+// A contextual (kind 1) entry's mark and current indices each name a u32 in the substitution table, and
+// DoContextualSubstitution (0x46cba) resolves that u32 to an SFNTLookupTable it hands SetTable with the
+// table's end as its only bound. A format-4 lookup reached there indexes its segment values unbounded
+// (ots_aat_lookup.h), so every lookup a reachable entry names is validated. Rearrangement (kind 0) reads
+// nothing past its entries, and insertion (kind 5) glyph lists are bounded by DoGlyphInsertion (0x494ac).
+// Kinds 1 and 5 read their u32 table offset at body + 16 without bounding it.
+//
 // Two crafted inputs crash TAATMorphSubtableMorx::DoLigatureAction and are what this validator rejects:
 //   - Component-stack underflow. It reads a component with a SIGNED index (movslq 0x800, 0x4789a;
 //     stack[index] at 0x478a5) it never lower-bounds, so a PerformAction reached with an empty stack
@@ -240,6 +252,131 @@ bool ligatureComponentStackSafe(const uint8_t *table, size_t length, uint64_t da
     return true;
 }
 
+// Calls visitor(entryPosition) for every entry of entrySize bytes the state machine can reach from the
+// start-of-text (0) and start-of-line (1) states over the class values its lookup can return, each entry
+// once. The walk and its budget are ligatureComponentStackSafe's without the stack bit. visitor returns
+// false to reject.
+template <typename Visitor>
+bool forEachReachableEntry(const uint8_t *table, size_t length, uint64_t dataOffset, uint64_t entrySize,
+    Visitor visitor)
+{
+    uint32_t nClasses = 0, stateOffset = 0, entryOffset = 0;
+    if (!wk_aat_read32(table, length, dataOffset, &nClasses)
+        || !wk_aat_read32(table, length, dataOffset + 8, &stateOffset)
+        || !wk_aat_read32(table, length, dataOffset + 12, &entryOffset))
+        return false;
+    if (nClasses < 1 || nClasses > kMaxClasses)
+        return false;
+    uint64_t stateBase = dataOffset + stateOffset;
+    uint64_t entryBase = dataOffset + entryOffset;
+    if (stateBase > length || entryBase > length)
+        return false;
+
+    std::vector<uint32_t> classes;
+    if (!collectClassValues(table, length, dataOffset, /*numGlyphs*/ 0xFFFF, classes))
+        return false;
+
+    uint64_t cellCount = (length - stateBase) / 2;
+    const uint64_t stepBudget = cellCount + 2ull * classes.size() + 1;
+    std::vector<uint8_t> cellSeen(static_cast<size_t>(cellCount), 0);
+    std::vector<uint8_t> stateSeen(0x10000, 0);
+    std::vector<uint8_t> entrySeen(0x10000, 0);
+    std::vector<uint16_t> queue;
+    auto enqueue = [&](uint16_t state) {
+        if (!stateSeen[state]) {
+            stateSeen[state] = 1;
+            queue.push_back(state);
+        }
+    };
+
+    enqueue(0);
+    enqueue(1);
+    uint64_t steps = 0;
+    for (size_t head = 0; head < queue.size(); ++head) {
+        uint16_t state = queue[head];
+        for (uint32_t cls : classes) {
+            if (++steps > stepBudget)
+                return false;
+            uint64_t cell = static_cast<uint64_t>(state) * nClasses + cls;
+            if (cell >= cellCount || cellSeen[static_cast<size_t>(cell)])
+                continue;
+            cellSeen[static_cast<size_t>(cell)] = 1;
+            uint16_t entryIndex = 0;
+            if (!wk_aat_read16(table, length, static_cast<size_t>(stateBase + cell * 2), &entryIndex))
+                continue;
+            uint64_t entryPos = entryBase + static_cast<uint64_t>(entryIndex) * entrySize;
+            uint16_t newState = 0;
+            if (entryPos + entrySize > length
+                || !wk_aat_read16(table, length, static_cast<size_t>(entryPos), &newState))
+                continue;   // the entry read leaves the table; no transition
+            if (!entrySeen[entryIndex]) {
+                entrySeen[entryIndex] = 1;
+                if (!visitor(entryPos))
+                    return false;
+            }
+            enqueue(newState);
+        }
+    }
+    return true;
+}
+
+// Kind 1 (contextual): {newState, flags, markIndex, currentIndex} entries; an index other than 0xFFFF
+// selects the u32 at substitutionTable + 4 * index, an offset from substitutionTable to a lookup whose
+// value is the replacement glyph. Each lookup a reachable entry names must validate. A u32 or lookup header
+// that leaves the table is one this OS skips (SetTable answers BadTable), and a format-0 lookup is bounded
+// by the table's extent; neither needs more. Total lookup work is capped as kerx's is.
+bool validateContextual(const uint8_t *table, size_t length, uint64_t dataOffset, uint32_t numGlyphs)
+{
+    if (!validateStateHeader(table, length, dataOffset, numGlyphs))
+        return false;
+    uint32_t substitutionOffset = 0;
+    if (!wk_aat_read32(table, length, dataOffset + 16, &substitutionOffset))
+        return false;
+    const uint64_t substitutionBase = dataOffset + substitutionOffset;
+    const uint64_t kMaxLookupWork = 4u * 1024u * 1024u;
+    uint64_t work = 0;
+    std::vector<uint8_t> indexSeen(0x10000, 0);
+
+    auto validateIndex = [&](uint16_t index) {
+        if (index == 0xFFFF || indexSeen[index])
+            return true;
+        indexSeen[index] = 1;
+        uint64_t element = substitutionBase + static_cast<uint64_t>(index) * 4;
+        uint32_t lookupOffset = 0;
+        if (element + 4 > length || !wk_aat_read32(table, length, static_cast<size_t>(element), &lookupOffset))
+            return true;
+        uint64_t lookup = substitutionBase + lookupOffset;
+        uint16_t format = 0, units = 0;
+        if (lookup + 2 > length || !wk_aat_read16(table, length, static_cast<size_t>(lookup), &format))
+            return true;
+        if (format != 2 && format != 4 && format != 6 && format != 8)
+            return true;
+        if (!wk_aat_read16(table, length, static_cast<size_t>(lookup + 4), &units))
+            return false;
+        work += 1 + units;
+        if (work > kMaxLookupWork)
+            return false;
+        return wk_aat_validate_lookup(table, length, static_cast<size_t>(lookup), 2, numGlyphs,
+            [&](const wk_aat_lookup_entry &) { return ++work <= kMaxLookupWork; });
+    };
+
+    return forEachReachableEntry(table, length, dataOffset, 8, [&](uint64_t entry) {
+        uint16_t markIndex = 0, currentIndex = 0;
+        if (!wk_aat_read16(table, length, static_cast<size_t>(entry + 4), &markIndex)
+            || !wk_aat_read16(table, length, static_cast<size_t>(entry + 6), &currentIndex))
+            return false;
+        return validateIndex(markIndex) && validateIndex(currentIndex);
+    });
+}
+
+// Kind 5 (insertion): the state header, and the insertion-action offset this OS reads at body + 16.
+bool validateInsertion(const uint8_t *table, size_t length, uint64_t dataOffset, uint32_t numGlyphs)
+{
+    uint32_t insertionActionOffset = 0;
+    return validateStateHeader(table, length, dataOffset, numGlyphs)
+        && wk_aat_read32(table, length, dataOffset + 16, &insertionActionOffset);
+}
+
 bool validateLigature(const uint8_t *table, size_t length, uint64_t dataOffset, uint32_t numGlyphs)
 {
     if (!validateStateHeader(table, length, dataOffset, numGlyphs))
@@ -271,9 +408,11 @@ bool validateSubtable(const uint8_t *table, size_t length, uint64_t dataOffset, 
         return false;
     switch (kind) {
     case 0:
-    case 1:
-    case 5:
         return validateStateHeader(table, length, dataOffset, numGlyphs);
+    case 1:
+        return validateContextual(table, length, dataOffset, numGlyphs);
+    case 5:
+        return validateInsertion(table, length, dataOffset, numGlyphs);
     case 2:
         return validateLigature(table, length, dataOffset, numGlyphs);
     case 4:
@@ -298,6 +437,7 @@ bool wk_aat_validate_morx(const uint8_t *table, size_t length, const wk_aat_font
 
     uint64_t cursor = 8;
     for (uint32_t c = 0; c < nChains; ++c) {
+        // The walk ends at a chain or subtable header that does not fit in the table, as this OS's does.
         uint32_t defaultFlags = 0, chainLength = 0, nFeatureEntries = 0, nSubtables = 0;
         if (!wk_aat_read32(table, length, cursor, &defaultFlags)
             || !wk_aat_read32(table, length, cursor + 4, &chainLength)
@@ -306,13 +446,13 @@ bool wk_aat_validate_morx(const uint8_t *table, size_t length, const wk_aat_font
             break;
         (void)defaultFlags;
         if (chainLength < 16)
-            break;
+            return false;
         uint64_t chainEnd = cursor + chainLength;
         if (chainEnd < cursor || chainEnd > length)
-            break;
+            return false;
         uint64_t sub = cursor + 16 + static_cast<uint64_t>(nFeatureEntries) * 12;
         if (sub < cursor || sub > chainEnd)
-            break;
+            return false;
         for (uint32_t s = 0; s < nSubtables; ++s) {
             uint32_t subLength = 0, coverage = 0, subFeatureFlags = 0;
             if (!wk_aat_read32(table, length, sub, &subLength)
@@ -321,10 +461,10 @@ bool wk_aat_validate_morx(const uint8_t *table, size_t length, const wk_aat_font
                 break;
             (void)subFeatureFlags;
             if (subLength < 12)
-                break;
+                return false;
             uint64_t next = sub + subLength;
             if (next < sub || next > chainEnd)
-                break;
+                return false;
             uint32_t kind = coverage & 0xFFu;
             if (!validateSubtable(table, length, sub + 12, next, kind, facts.numGlyphs))
                 return false;

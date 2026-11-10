@@ -387,9 +387,8 @@ CFDataRef validateSanitizedFont(CFDataRef font)
 // rewritten subtable move by the two bytes inserted after its offset array.
 //
 // A PairPos lookup becomes an Extension lookup by writing an Extension subtable over the first 8 bytes of
-// each of its subtables and copying every one of them, format 2 unchanged. It stays as it is when any offset
-// in GPOS resolves into the bytes that would change, or when a lookup that stays as it is shares one of
-// its subtables.
+// each of its subtables and copying every one of them, format 2 unchanged. It stays as it is when any
+// structure in GPOS holds a byte that would change, or when any other lookup reads one of its subtables.
 struct LayoutTableReader {
     const uint8_t *bytes;
     size_t length;
@@ -436,87 +435,161 @@ std::vector<size_t> deviceFieldPositions(uint16_t format)
     return positions;
 }
 
-// Every position an offset in GPOS resolves to: the script, feature, feature-variation and lookup lists
-// and what they reference, every lookup's subtables, and the Coverage, ClassDef, PairSet, Anchor, mark and
-// base arrays, rule sets and Device tables those reference.
-class GPOSOffsetTargets {
+// The byte range of every structure GPOS reaches -- its header, the script, feature, feature-variation and
+// lookup lists and what they reference, every lookup and subtable, and the Coverage, ClassDef, PairSet,
+// Anchor, mark and base arrays, rule sets, rules and Device tables those reference -- each from where an
+// offset resolves to the last byte its counts give it.
+class GPOSStructures {
 public:
-    explicit GPOSOffsetTargets(const LayoutTableReader &table)
+    enum class Kind { Lookup, Subtable, Other };
+
+    explicit GPOSStructures(const LayoutTableReader &table)
         : m_table(table)
     {
         walk();
-        std::sort(m_targets.begin(), m_targets.end());
-        std::sort(m_subtableTargets.begin(), m_subtableTargets.end());
+        std::sort(m_ranges.begin(), m_ranges.end(), [](const Range &a, const Range &b) { return a.begin < b.begin; });
+        m_reach.resize(m_ranges.size());
+        size_t reach = 0;
+        for (size_t i = 0; i < m_ranges.size(); ++i)
+            m_reach[i] = reach = std::max(reach, m_ranges[i].end);
     }
 
-    // Whether an offset resolves into [begin, end).
-    bool anyWithin(size_t begin, size_t end) const
+    // Whether any structure but a `kind` one starting at `owner` holds a byte of [begin, end).
+    bool overlapsOther(size_t begin, size_t end, size_t owner, Kind kind) const
     {
-        auto target = std::lower_bound(m_targets.begin(), m_targets.end(), begin);
-        if (target != m_targets.end() && *target < end)
-            return true;
-        auto subtable = std::lower_bound(m_subtableTargets.begin(), m_subtableTargets.end(), begin + 1);
-        return subtable != m_subtableTargets.end() && *subtable < end;
+        auto after = std::lower_bound(m_ranges.begin(), m_ranges.end(), end, [](const Range &r, size_t position) { return r.begin < position; });
+        for (size_t i = static_cast<size_t>(after - m_ranges.begin()); i-- > 0 && m_reach[i] > begin; ) {
+            const Range &r = m_ranges[i];
+            if (r.end > begin && !(r.begin == owner && r.kind == kind))
+                return true;
+        }
+        return false;
     }
 
 private:
-    size_t add(size_t base, size_t offset)
+    struct Range {
+        size_t begin;
+        size_t end;
+        Kind kind;
+    };
+
+    void record(size_t position, size_t size, Kind kind = Kind::Other) { m_ranges.push_back({ position, position + size, kind }); }
+
+    size_t at(size_t base, uint16_t offset) const { return offset ? base + offset : 0; }
+
+    void coverage(size_t base, uint16_t offset)
     {
-        if (!offset)
-            return 0;
-        m_targets.push_back(base + offset);
-        return base + offset;
+        size_t position = at(base, offset);
+        if (!position)
+            return;
+        uint16_t format = m_table.u16(position), count = m_table.u16(position + 2);
+        if (format == 1)
+            record(position, 4 + 2 * static_cast<size_t>(count));
+        else if (format == 2)
+            record(position, 4 + 6 * static_cast<size_t>(count));
     }
 
-    bool fits(size_t position, size_t size) const { return m_table.has(position, size); }
+    void classDef(size_t base, uint16_t offset)
+    {
+        size_t position = at(base, offset);
+        if (!position)
+            return;
+        uint16_t format = m_table.u16(position);
+        if (format == 1)
+            record(position, 6 + 2 * static_cast<size_t>(m_table.u16(position + 4)));
+        else if (format == 2)
+            record(position, 4 + 6 * static_cast<size_t>(m_table.u16(position + 2)));
+    }
+
+    void device(size_t base, uint16_t offset)
+    {
+        size_t position = at(base, offset);
+        if (!position)
+            return;
+        uint16_t startSize = m_table.u16(position), endSize = m_table.u16(position + 2), format = m_table.u16(position + 4);
+        if (format == 0x8000)
+            record(position, 6);
+        else if (format >= 1 && format <= 3 && endSize >= startSize)
+            record(position, 6 + ((((static_cast<size_t>(endSize) - startSize + 1) << format) + 15) / 16) * 2);
+    }
 
     void valueRecord(size_t base, size_t record, uint16_t format)
     {
         for (size_t position : deviceFieldPositions(format))
-            add(base, m_table.u16(record + position));
+            device(base, m_table.u16(record + position));
     }
 
     void anchor(size_t base, uint16_t offset)
     {
-        size_t anchorTable = add(base, offset);
-        if (anchorTable && m_table.u16(anchorTable) == 3) {
-            add(anchorTable, m_table.u16(anchorTable + 6));
-            add(anchorTable, m_table.u16(anchorTable + 8));
+        size_t position = at(base, offset);
+        if (!position)
+            return;
+        uint16_t format = m_table.u16(position);
+        if (format < 1 || format > 3)
+            return;
+        record(position, format == 1 ? 6 : format == 2 ? 8 : 10);
+        if (format == 3) {
+            device(position, m_table.u16(position + 6));
+            device(position, m_table.u16(position + 8));
         }
     }
 
     void markArray(size_t base, uint16_t offset)
     {
-        size_t array = add(base, offset);
+        size_t array = at(base, offset);
         if (!array)
             return;
-        for (uint16_t i = 0; i < m_table.u16(array) && fits(array + 2 + 4 * static_cast<size_t>(i), 4); ++i)
+        uint16_t count = m_table.u16(array);
+        record(array, 2 + 4 * static_cast<size_t>(count));
+        for (uint16_t i = 0; i < count && m_table.has(array + 2 + 4 * static_cast<size_t>(i), 4); ++i)
             anchor(array, m_table.u16(array + 4 + 4 * static_cast<size_t>(i)));
     }
 
     // An array of rows, each `columns` Anchor offsets from the array.
-    void anchorMatrix(size_t array, uint16_t columns)
+    void anchorMatrix(size_t base, uint16_t offset, uint16_t columns)
     {
+        size_t array = at(base, offset);
+        if (!array)
+            return;
         const size_t cells = static_cast<size_t>(m_table.u16(array)) * columns;
-        for (size_t cell = 0; cell < cells && fits(array + 2 + 2 * cell, 2); ++cell)
+        record(array, 2 + 2 * cells);
+        for (size_t cell = 0; cell < cells && m_table.has(array + 2 + 2 * cell, 2); ++cell)
             anchor(array, m_table.u16(array + 2 + 2 * cell));
     }
 
-    void ruleSets(size_t subtable, size_t countPosition)
+    // A PosRule or PosClassRule: glyphCount, posCount, glyphCount - 1 input values, posCount records.
+    size_t ruleSize(size_t rule) const
     {
-        for (uint16_t i = 0; i < m_table.u16(subtable + countPosition) && fits(subtable + countPosition + 2 + 2 * static_cast<size_t>(i), 2); ++i) {
-            size_t set = add(subtable, m_table.u16(subtable + countPosition + 2 + 2 * static_cast<size_t>(i)));
-            if (!set)
-                continue;
-            for (uint16_t rule = 0; rule < m_table.u16(set) && fits(set + 2 + 2 * static_cast<size_t>(rule), 2); ++rule)
-                add(set, m_table.u16(set + 2 + 2 * static_cast<size_t>(rule)));
-        }
+        uint16_t glyphCount = m_table.u16(rule), posCount = m_table.u16(rule + 2);
+        return 4 + 2 * static_cast<size_t>(glyphCount ? glyphCount - 1 : 0) + 4 * static_cast<size_t>(posCount);
     }
 
-    void offsetArray(size_t base, size_t countPosition)
+    // A ChainPosRule or ChainPosClassRule: backtrack, input (less its first glyph), lookahead, records.
+    size_t chainRuleSize(size_t rule) const
     {
-        for (uint16_t i = 0; i < m_table.u16(countPosition) && fits(countPosition + 2 + 2 * static_cast<size_t>(i), 2); ++i)
-            add(base, m_table.u16(countPosition + 2 + 2 * static_cast<size_t>(i)));
+        size_t position = rule;
+        position += 2 + 2 * static_cast<size_t>(m_table.u16(position));
+        uint16_t input = m_table.u16(position);
+        position += 2 + 2 * static_cast<size_t>(input ? input - 1 : 0);
+        position += 2 + 2 * static_cast<size_t>(m_table.u16(position));
+        position += 2 + 4 * static_cast<size_t>(m_table.u16(position));
+        return position - rule;
+    }
+
+    void ruleSets(size_t subtable, size_t countPosition, bool chained)
+    {
+        for (uint16_t i = 0; i < m_table.u16(subtable + countPosition) && m_table.has(subtable + countPosition + 2 + 2 * static_cast<size_t>(i), 2); ++i) {
+            size_t set = at(subtable, m_table.u16(subtable + countPosition + 2 + 2 * static_cast<size_t>(i)));
+            if (!set)
+                continue;
+            uint16_t count = m_table.u16(set);
+            record(set, 2 + 2 * static_cast<size_t>(count));
+            for (uint16_t r = 0; r < count && m_table.has(set + 2 + 2 * static_cast<size_t>(r), 2); ++r) {
+                size_t rule = at(set, m_table.u16(set + 2 + 2 * static_cast<size_t>(r)));
+                if (rule)
+                    record(rule, chained ? chainRuleSize(rule) : ruleSize(rule));
+            }
+        }
     }
 
     void subtable(uint16_t type, size_t position, bool extended)
@@ -525,176 +598,224 @@ private:
         uint16_t format = t.u16(position);
         switch (type) {
         case 1: {
-            add(position, t.u16(position + 2));
             uint16_t valueFormat = t.u16(position + 4);
-            if (format == 1)
+            const size_t size = valueRecordSize(valueFormat);
+            coverage(position, t.u16(position + 2));
+            if (format == 1) {
+                record(position, 6 + size, Kind::Subtable);
                 valueRecord(position, position + 6, valueFormat);
-            else if (format == 2) {
-                const size_t size = valueRecordSize(valueFormat);
-                for (uint16_t i = 0; i < t.u16(position + 6) && fits(position + 8 + i * size, size); ++i)
+            } else if (format == 2) {
+                record(position, 8 + t.u16(position + 6) * size, Kind::Subtable);
+                for (uint16_t i = 0; i < t.u16(position + 6) && t.has(position + 8 + i * size, size); ++i)
                     valueRecord(position, position + 8 + i * size, valueFormat);
             }
             break;
         }
         case 2: {
-            add(position, t.u16(position + 2));
             uint16_t format1 = t.u16(position + 4), format2 = t.u16(position + 6);
             const size_t size1 = valueRecordSize(format1), size2 = valueRecordSize(format2);
+            coverage(position, t.u16(position + 2));
             if (format == 1) {
-                for (uint16_t i = 0; i < t.u16(position + 8) && fits(position + 10 + 2 * static_cast<size_t>(i), 2); ++i) {
-                    size_t pairSet = add(position, t.u16(position + 10 + 2 * static_cast<size_t>(i)));
+                record(position, 10 + 2 * static_cast<size_t>(t.u16(position + 8)), Kind::Subtable);
+                const size_t recordSize = 2 + size1 + size2;
+                for (uint16_t i = 0; i < t.u16(position + 8) && t.has(position + 10 + 2 * static_cast<size_t>(i), 2); ++i) {
+                    size_t pairSet = at(position, t.u16(position + 10 + 2 * static_cast<size_t>(i)));
                     if (!pairSet)
                         continue;
-                    const size_t recordSize = 2 + size1 + size2;
-                    for (uint16_t record = 0; record < t.u16(pairSet) && fits(pairSet + 2 + record * recordSize, recordSize); ++record) {
-                        valueRecord(position, pairSet + 4 + record * recordSize, format1);
-                        valueRecord(position, pairSet + 4 + record * recordSize + size1, format2);
+                    record(pairSet, 2 + t.u16(pairSet) * recordSize);
+                    for (uint16_t r = 0; r < t.u16(pairSet) && t.has(pairSet + 2 + r * recordSize, recordSize); ++r) {
+                        valueRecord(position, pairSet + 4 + r * recordSize, format1);
+                        valueRecord(position, pairSet + 4 + r * recordSize + size1, format2);
                     }
                 }
             } else if (format == 2) {
-                add(position, t.u16(position + 8));
-                add(position, t.u16(position + 10));
                 const size_t records = static_cast<size_t>(t.u16(position + 12)) * t.u16(position + 14);
-                for (size_t record = 0; record < records && fits(position + 16 + record * (size1 + size2), size1 + size2); ++record) {
-                    valueRecord(position, position + 16 + record * (size1 + size2), format1);
-                    valueRecord(position, position + 16 + record * (size1 + size2) + size1, format2);
+                record(position, 16 + records * (size1 + size2), Kind::Subtable);
+                classDef(position, t.u16(position + 8));
+                classDef(position, t.u16(position + 10));
+                for (size_t r = 0; r < records && t.has(position + 16 + r * (size1 + size2), size1 + size2); ++r) {
+                    valueRecord(position, position + 16 + r * (size1 + size2), format1);
+                    valueRecord(position, position + 16 + r * (size1 + size2) + size1, format2);
                 }
             }
             break;
         }
         case 3:
-            add(position, t.u16(position + 2));
-            for (uint16_t i = 0; i < t.u16(position + 4) && fits(position + 6 + 4 * static_cast<size_t>(i), 4); ++i) {
+            record(position, 6 + 4 * static_cast<size_t>(t.u16(position + 4)), Kind::Subtable);
+            coverage(position, t.u16(position + 2));
+            for (uint16_t i = 0; i < t.u16(position + 4) && t.has(position + 6 + 4 * static_cast<size_t>(i), 4); ++i) {
                 anchor(position, t.u16(position + 6 + 4 * static_cast<size_t>(i)));
                 anchor(position, t.u16(position + 8 + 4 * static_cast<size_t>(i)));
             }
             break;
         case 4:
-        case 6: {
-            add(position, t.u16(position + 2));
-            add(position, t.u16(position + 4));
+        case 6:
+            record(position, 12, Kind::Subtable);
+            coverage(position, t.u16(position + 2));
+            coverage(position, t.u16(position + 4));
             markArray(position, t.u16(position + 8));
-            size_t array = add(position, t.u16(position + 10));
-            if (array)
-                anchorMatrix(array, t.u16(position + 6));
+            anchorMatrix(position, t.u16(position + 10), t.u16(position + 6));
             break;
-        }
         case 5: {
-            add(position, t.u16(position + 2));
-            add(position, t.u16(position + 4));
+            record(position, 12, Kind::Subtable);
+            coverage(position, t.u16(position + 2));
+            coverage(position, t.u16(position + 4));
             markArray(position, t.u16(position + 8));
-            size_t ligatures = add(position, t.u16(position + 10));
-            for (uint16_t i = 0; ligatures && i < t.u16(ligatures) && fits(ligatures + 2 + 2 * static_cast<size_t>(i), 2); ++i) {
-                size_t attach = add(ligatures, t.u16(ligatures + 2 + 2 * static_cast<size_t>(i)));
-                if (attach)
-                    anchorMatrix(attach, t.u16(position + 6));
-            }
+            size_t ligatures = at(position, t.u16(position + 10));
+            if (!ligatures)
+                break;
+            record(ligatures, 2 + 2 * static_cast<size_t>(t.u16(ligatures)));
+            for (uint16_t i = 0; i < t.u16(ligatures) && t.has(ligatures + 2 + 2 * static_cast<size_t>(i), 2); ++i)
+                anchorMatrix(ligatures, t.u16(ligatures + 2 + 2 * static_cast<size_t>(i)), t.u16(position + 6));
             break;
         }
         case 7:
             if (format == 1) {
-                add(position, t.u16(position + 2));
-                ruleSets(position, 4);
+                record(position, 6 + 2 * static_cast<size_t>(t.u16(position + 4)), Kind::Subtable);
+                coverage(position, t.u16(position + 2));
+                ruleSets(position, 4, false);
             } else if (format == 2) {
-                add(position, t.u16(position + 2));
-                add(position, t.u16(position + 4));
-                ruleSets(position, 6);
+                record(position, 8 + 2 * static_cast<size_t>(t.u16(position + 6)), Kind::Subtable);
+                coverage(position, t.u16(position + 2));
+                classDef(position, t.u16(position + 4));
+                ruleSets(position, 6, false);
             } else if (format == 3) {
-                for (uint16_t i = 0; i < t.u16(position + 2) && fits(position + 6 + 2 * static_cast<size_t>(i), 2); ++i)
-                    add(position, t.u16(position + 6 + 2 * static_cast<size_t>(i)));
+                uint16_t glyphCount = t.u16(position + 2), posCount = t.u16(position + 4);
+                record(position, 6 + 2 * static_cast<size_t>(glyphCount) + 4 * static_cast<size_t>(posCount), Kind::Subtable);
+                for (uint16_t i = 0; i < glyphCount && t.has(position + 6 + 2 * static_cast<size_t>(i), 2); ++i)
+                    coverage(position, t.u16(position + 6 + 2 * static_cast<size_t>(i)));
             }
             break;
         case 8:
             if (format == 1) {
-                add(position, t.u16(position + 2));
-                ruleSets(position, 4);
+                record(position, 6 + 2 * static_cast<size_t>(t.u16(position + 4)), Kind::Subtable);
+                coverage(position, t.u16(position + 2));
+                ruleSets(position, 4, true);
             } else if (format == 2) {
-                for (size_t field = 2; field <= 8; field += 2)
-                    add(position, t.u16(position + field));
-                ruleSets(position, 10);
+                record(position, 12 + 2 * static_cast<size_t>(t.u16(position + 10)), Kind::Subtable);
+                coverage(position, t.u16(position + 2));
+                for (size_t field = 4; field <= 8; field += 2)
+                    classDef(position, t.u16(position + field));
+                ruleSets(position, 10, true);
             } else if (format == 3) {
                 size_t count = position + 2;
-                for (unsigned sequence = 0; sequence < 3 && fits(count, 2); ++sequence) {
-                    offsetArray(position, count);
+                for (unsigned sequence = 0; sequence < 3 && t.has(count, 2); ++sequence) {
+                    for (uint16_t i = 0; i < t.u16(count) && t.has(count + 2 + 2 * static_cast<size_t>(i), 2); ++i)
+                        coverage(position, t.u16(count + 2 + 2 * static_cast<size_t>(i)));
                     count += 2 + 2 * static_cast<size_t>(t.u16(count));
                 }
+                record(position, count + 2 + 4 * static_cast<size_t>(t.u16(count)) - position, Kind::Subtable);
             }
             break;
         case 9:
-            if (!extended && format == 1 && fits(position, 8) && t.u32(position + 4)) {
-                size_t target = position + t.u32(position + 4);
-                m_subtableTargets.push_back(target);
-                subtable(t.u16(position + 2), target, true);
-            }
+            if (format != 1)
+                break;
+            record(position, 8, Kind::Subtable);
+            if (!extended && t.has(position, 8) && t.u32(position + 4))
+                subtable(t.u16(position + 2), position + t.u32(position + 4), true);
             break;
         }
     }
 
-    void feature(size_t base, size_t offset32OrZero, uint16_t offset16)
+    // A feature table, and the FeatureParams of the features that define them: 'size', 'ss01'-'ss20' and
+    // 'cv01'-'cv99'. Every other tag's FeatureParams offset is reserved and nothing reads where it points.
+    void feature(size_t featureTable, uint32_t tag)
     {
-        size_t featureTable = offset32OrZero ? base + offset32OrZero : add(base, offset16);
-        if (offset32OrZero)
-            m_targets.push_back(featureTable);
-        if (featureTable)
-            add(featureTable, m_table.u16(featureTable));
+        record(featureTable, 4 + 2 * static_cast<size_t>(m_table.u16(featureTable + 2)));
+        size_t params = at(featureTable, m_table.u16(featureTable));
+        if (!params)
+            return;
+        char name[4] = { static_cast<char>(tag >> 24), static_cast<char>(tag >> 16), static_cast<char>(tag >> 8), static_cast<char>(tag) };
+        bool numbered = name[2] >= '0' && name[2] <= '9' && name[3] >= '0' && name[3] <= '9';
+        int number = numbered ? (name[2] - '0') * 10 + (name[3] - '0') : 0;
+        if (tag == OTS_TAG('s', 'i', 'z', 'e'))
+            record(params, 10);
+        else if (name[0] == 's' && name[1] == 's' && number >= 1 && number <= 20)
+            record(params, 4);
+        else if (name[0] == 'c' && name[1] == 'v' && number >= 1 && number <= 99)
+            record(params, 14 + 3 * static_cast<size_t>(m_table.u16(params + 12)));
+    }
+
+    void langSys(size_t base, uint16_t offset)
+    {
+        size_t position = at(base, offset);
+        if (position)
+            record(position, 6 + 2 * static_cast<size_t>(m_table.u16(position + 4)));
     }
 
     void walk()
     {
         const LayoutTableReader &t = m_table;
-        size_t scripts = add(0, t.u16(4));
-        for (uint16_t i = 0; scripts && i < t.u16(scripts) && fits(scripts + 2 + 6 * static_cast<size_t>(i), 6); ++i) {
-            size_t script = add(scripts, t.u16(scripts + 6 + 6 * static_cast<size_t>(i)));
-            if (!script)
-                continue;
-            add(script, t.u16(script));
-            for (uint16_t j = 0; j < t.u16(script + 2) && fits(script + 4 + 6 * static_cast<size_t>(j), 6); ++j)
-                add(script, t.u16(script + 8 + 6 * static_cast<size_t>(j)));
+        record(0, t.u16(2) >= 1 ? 14 : 10);
+        size_t scripts = at(0, t.u16(4));
+        if (scripts) {
+            record(scripts, 2 + 6 * static_cast<size_t>(t.u16(scripts)));
+            for (uint16_t i = 0; i < t.u16(scripts) && t.has(scripts + 2 + 6 * static_cast<size_t>(i), 6); ++i) {
+                size_t script = at(scripts, t.u16(scripts + 6 + 6 * static_cast<size_t>(i)));
+                if (!script)
+                    continue;
+                record(script, 4 + 6 * static_cast<size_t>(t.u16(script + 2)));
+                langSys(script, t.u16(script));
+                for (uint16_t j = 0; j < t.u16(script + 2) && t.has(script + 4 + 6 * static_cast<size_t>(j), 6); ++j)
+                    langSys(script, t.u16(script + 8 + 6 * static_cast<size_t>(j)));
+            }
         }
-        size_t features = add(0, t.u16(6));
-        for (uint16_t i = 0; features && i < t.u16(features) && fits(features + 2 + 6 * static_cast<size_t>(i), 6); ++i)
-            feature(features, 0, t.u16(features + 6 + 6 * static_cast<size_t>(i)));
-        size_t lookups = add(0, t.u16(8));
-        for (uint16_t i = 0; lookups && i < t.u16(lookups) && fits(lookups + 2 + 2 * static_cast<size_t>(i), 2); ++i) {
-            size_t lookup = add(lookups, t.u16(lookups + 2 + 2 * static_cast<size_t>(i)));
-            if (!lookup)
-                continue;
-            for (uint16_t s = 0; s < t.u16(lookup + 4) && fits(lookup + 6 + 2 * static_cast<size_t>(s), 2); ++s) {
-                uint16_t offset = t.u16(lookup + 6 + 2 * static_cast<size_t>(s));
-                size_t position = offset ? lookup + offset : 0;
-                if (position)
-                    m_subtableTargets.push_back(position);
-                if (position)
-                    subtable(t.u16(lookup), position, false);
+        size_t features = at(0, t.u16(6));
+        std::vector<uint32_t> featureTags;
+        if (features) {
+            record(features, 2 + 6 * static_cast<size_t>(t.u16(features)));
+            for (uint16_t i = 0; i < t.u16(features) && t.has(features + 2 + 6 * static_cast<size_t>(i), 6); ++i) {
+                uint32_t tag = t.u32(features + 2 + 6 * static_cast<size_t>(i));
+                featureTags.push_back(tag);
+                if (size_t featureTable = at(features, t.u16(features + 6 + 6 * static_cast<size_t>(i))))
+                    feature(featureTable, tag);
+            }
+        }
+        size_t lookups = at(0, t.u16(8));
+        if (lookups) {
+            record(lookups, 2 + 2 * static_cast<size_t>(t.u16(lookups)));
+            for (uint16_t i = 0; i < t.u16(lookups) && t.has(lookups + 2 + 2 * static_cast<size_t>(i), 2); ++i) {
+                size_t lookup = at(lookups, t.u16(lookups + 2 + 2 * static_cast<size_t>(i)));
+                if (!lookup)
+                    continue;
+                uint16_t subtableCount = t.u16(lookup + 4);
+                record(lookup, 6 + 2 * static_cast<size_t>(subtableCount) + ((t.u16(lookup + 2) & 0x10) ? 2 : 0), Kind::Lookup);
+                for (uint16_t s = 0; s < subtableCount && t.has(lookup + 6 + 2 * static_cast<size_t>(s), 2); ++s) {
+                    if (size_t position = at(lookup, t.u16(lookup + 6 + 2 * static_cast<size_t>(s))))
+                        subtable(t.u16(lookup), position, false);
+                }
             }
         }
         if (t.u16(2) >= 1 && t.u32(10)) {
             size_t variations = t.u32(10);
-            m_targets.push_back(variations);
-            for (uint32_t i = 0; i < t.u32(variations + 4) && fits(variations + 8 + 8 * static_cast<size_t>(i), 8); ++i) {
-                size_t conditions = t.u32(variations + 8 + 8 * static_cast<size_t>(i));
-                if (conditions) {
-                    m_targets.push_back(variations + conditions);
+            uint32_t count = t.u32(variations + 4);
+            record(variations, 8 + 8 * static_cast<size_t>(count));
+            for (uint32_t i = 0; i < count && t.has(variations + 8 + 8 * static_cast<size_t>(i), 8); ++i) {
+                if (uint32_t conditions = t.u32(variations + 8 + 8 * static_cast<size_t>(i))) {
                     size_t set = variations + conditions;
-                    for (uint16_t c = 0; c < t.u16(set) && fits(set + 2 + 4 * static_cast<size_t>(c), 4); ++c) {
-                        if (t.u32(set + 2 + 4 * static_cast<size_t>(c)))
-                            m_targets.push_back(set + t.u32(set + 2 + 4 * static_cast<size_t>(c)));
+                    record(set, 2 + 4 * static_cast<size_t>(t.u16(set)));
+                    for (uint16_t c = 0; c < t.u16(set) && t.has(set + 2 + 4 * static_cast<size_t>(c), 4); ++c) {
+                        if (uint32_t condition = t.u32(set + 2 + 4 * static_cast<size_t>(c)))
+                            record(set + condition, 8);
                     }
                 }
-                size_t substitution = t.u32(variations + 12 + 8 * static_cast<size_t>(i));
+                uint32_t substitution = t.u32(variations + 12 + 8 * static_cast<size_t>(i));
                 if (!substitution)
                     continue;
                 size_t table = variations + substitution;
-                m_targets.push_back(table);
-                for (uint16_t r = 0; r < t.u16(table + 4) && fits(table + 6 + 6 * static_cast<size_t>(r), 6); ++r)
-                    feature(table, t.u32(table + 8 + 6 * static_cast<size_t>(r)), 0);
+                record(table, 6 + 6 * static_cast<size_t>(t.u16(table + 4)));
+                for (uint16_t r = 0; r < t.u16(table + 4) && t.has(table + 6 + 6 * static_cast<size_t>(r), 6); ++r) {
+                    uint16_t featureIndex = t.u16(table + 6 + 6 * static_cast<size_t>(r));
+                    if (uint32_t alternate = t.u32(table + 8 + 6 * static_cast<size_t>(r)))
+                        feature(table + alternate, featureIndex < featureTags.size() ? featureTags[featureIndex] : 0);
+                }
             }
         }
     }
 
     const LayoutTableReader &m_table;
-    std::vector<size_t> m_targets;
-    std::vector<size_t> m_subtableTargets;
+    std::vector<Range> m_ranges;
+    std::vector<size_t> m_reach;
 };
 
 // Extends *end past the Device or VariationIndex table `offset` bytes after `base`, relative to base.
@@ -910,8 +1031,8 @@ std::vector<uint8_t> gposWithLastPairSetsReachable(const uint8_t *bytes, size_t 
     };
 
     // The PairPos lookups with a format 1 subtable whose every subtable can take an Extension subtable
-    // over its first 8 bytes.
-    const GPOSOffsetTargets targets(table);
+    // over its first 8 bytes and whose type word can become 9, with no other structure in those bytes.
+    const GPOSStructures structures(table);
     std::vector<bool> converted(lookupCount, false);
     for (uint16_t i = 0; i < lookupCount; ++i) {
         size_t lookup = lookupAt(i);
@@ -922,32 +1043,55 @@ std::vector<uint8_t> gposWithLastPairSetsReachable(const uint8_t *bytes, size_t 
         for (uint16_t s = 0; s < subtableCount(lookup) && convertible; ++s) {
             size_t subtable = subtableAt(lookup, s);
             hasFormat1 = hasFormat1 || table.u16(subtable) == 1;
-            convertible = table.has(subtable, 8) && !targets.anyWithin(subtable, subtable + 8) && copies[copyIndex(subtable)].valid;
+            convertible = table.has(subtable, 8) && !structures.overlapsOther(subtable, subtable + 8, subtable, GPOSStructures::Kind::Subtable)
+                && copies[copyIndex(subtable)].valid;
         }
-        converted[i] = hasFormat1 && convertible;
+        converted[i] = hasFormat1 && convertible && !structures.overlapsOther(lookup, lookup + 2, lookup, GPOSStructures::Kind::Lookup);
     }
-    // A subtable a lookup that stays as it is still reads directly is never written over.
+    // A subtable is written over only when nothing but converted lookups reads it: no lookup that stays
+    // as it is lists it, whatever its type, and no Extension subtable resolves to it as another type.
     for (bool settled = false; !settled; ) {
         settled = true;
-        for (uint16_t i = 0; i < lookupCount; ++i) {
-            size_t lookup = lookupAt(i);
-            if (table.u16(lookup) != 2 || converted[i])
-                continue;
-            for (uint16_t s = 0; s < subtableCount(lookup); ++s) {
-                size_t shared = subtableAt(lookup, s);
-                for (uint16_t j = 0; j < lookupCount; ++j) {
-                    if (!converted[j])
-                        continue;
-                    for (uint16_t k = 0; k < subtableCount(lookupAt(j)); ++k) {
-                        if (subtableAt(lookupAt(j), k) == shared) {
-                            converted[j] = false;
-                            settled = false;
-                        }
+        auto keepReadersOf = [&](size_t shared) {
+            for (uint16_t j = 0; j < lookupCount; ++j) {
+                if (!converted[j])
+                    continue;
+                for (uint16_t k = 0; k < subtableCount(lookupAt(j)); ++k) {
+                    if (subtableAt(lookupAt(j), k) == shared) {
+                        converted[j] = false;
+                        settled = false;
                     }
                 }
             }
+        };
+        for (uint16_t i = 0; i < lookupCount; ++i) {
+            size_t lookup = lookupAt(i);
+            for (uint16_t s = 0; s < subtableCount(lookup); ++s) {
+                size_t subtable = subtableAt(lookup, s);
+                if (!converted[i])
+                    keepReadersOf(subtable);
+                if (table.u16(lookup) == 9 && table.has(subtable, 8) && table.u16(subtable) == 1
+                    && table.u16(subtable + 2) != 2 && table.u32(subtable + 4))
+                    keepReadersOf(subtable + table.u32(subtable + 4));
+            }
         }
     }
+    // An Extension subtable is pointed at a copy only when every lookup listing it is an Extension lookup
+    // and no other structure lies in its offset.
+    auto canRepoint = [&](size_t extension) {
+        if (structures.overlapsOther(extension + 4, extension + 8, extension, GPOSStructures::Kind::Subtable))
+            return false;
+        for (uint16_t j = 0; j < lookupCount; ++j) {
+            size_t lookup = lookupAt(j);
+            if (table.u16(lookup) == 9)
+                continue;
+            for (uint16_t k = 0; k < subtableCount(lookup); ++k) {
+                if (subtableAt(lookup, k) == extension)
+                    return false;
+            }
+        }
+        return true;
+    };
 
     std::vector<uint8_t> out(bytes, bytes + length);
     auto place = [&](size_t index) -> size_t {
@@ -997,7 +1141,7 @@ std::vector<uint8_t> gposWithLastPairSetsReachable(const uint8_t *bytes, size_t 
             if (table.u16(subtable) != 1 && !stubbed)
                 continue;
             size_t index = copyIndex(subtable);
-            if (!copies[index].valid) {
+            if (!copies[index].valid || !canRepoint(extension)) {
                 if (stubbed)
                     return { };
                 continue;
