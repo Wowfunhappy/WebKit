@@ -1,12 +1,13 @@
 # adaptivedemux2 fetches over libsoup, which it dlopens, and refuses to register its elements
-# when libsoup cannot be loaded. Without libsoup, the download helper fetches each non-file URI
-# with the URI source element that handles it (webkitwebsrc in WebKit), reading what the element
+# when libsoup cannot be loaded. Without libsoup, the download helper fetches every URI, file:
+# included, with the URI source element that handles it (webkitwebsrc in WebKit), reading what the element
 # pushes: its http-headers event for status, redirect and headers, a BYTES seek for a range, an
 # error message or EOS for the end. The element's context requests go up through the demuxer.
 #
-# The URI-source backend resolves arbitrary resource schemes through the host's
-# URI mapper in its loader context. Non-HTTP responses use GFile transfer status
-# semantics. The libsoup backend retains its manifest protocol requirements.
+# The URI-source backend resolves each URI through the host's URI mapper in its
+# loader context, so the host decides how every variant, segment, initialization map
+# and key loads. Non-HTTP responses use GFile transfer status semantics. The libsoup
+# backend keeps its GFile transfers and its manifest protocol requirements.
 #
 # Applied by build_deps with patch -p1.
 --- a/ext/adaptivedemux2/downloadhelper.c
@@ -673,7 +674,17 @@
  }
  
  gboolean
-@@ -1160,6 +1740,40 @@
+@@ -1146,7 +1726,8 @@
+   /* Clear the state back to unsent */
+   request->state = DOWNLOAD_REQUEST_STATE_UNSENT;
+ 
+-  if (g_str_has_prefix (request->uri, "file://")) {
++  /* Without libsoup, every URI is fetched by its URI source element */
++  if (dh->session != NULL && g_str_has_prefix (request->uri, "file://")) {
+     if (flags & DOWNLOAD_FLAG_HEADERS_ONLY) {
+       /* FIXME: Implement fake header only requests for file URIs? */
+       GST_ERROR ("file:// URIs do not support header-only requests");
+@@ -1160,6 +1741,40 @@
  
      transfer_task = transfer_task_new_file (dh, request, blocking);
      g_mutex_lock (&dh->transfer_lock);

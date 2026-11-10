@@ -2283,13 +2283,14 @@ bool MediaPlayerPrivateGStreamer::handleNeedContextMessage(GstMessage* message)
         GRefPtr context = adoptGRef(gst_context_new(WEBKIT_WEB_SRC_RESOURCE_LOADER_CONTEXT_TYPE_NAME.characters(), FALSE));
         GstStructure* contextStructure = gst_context_writable_structure(context.get());
 
-        // AQUAWEBKIT: the context shares URI routing and owns a weak response observer across context copies.
+        // AQUAWEBKIT: the context shares URI routing (the resources a manifest names, file: ones included, load
+        // through WebCore) and owns a weak response observer across context copies.
         auto* observer = new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this };
         auto observerData = adoptGRef(g_bytes_new_with_free_func(observer, sizeof(*observer), [](gpointer data) {
             delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
         }, observer));
         // gst_structure_set(contextStructure, "loader", G_TYPE_POINTER, m_loader.ptr(), nullptr);
-        gst_structure_set(contextStructure, "loader", G_TYPE_POINTER, m_loader.ptr(), "player", G_TYPE_BYTES, observerData.get(), "uri-mapper", G_TYPE_POINTER, reinterpret_cast<gpointer>(gStreamerPlaybinURI), nullptr);
+        gst_structure_set(contextStructure, "loader", G_TYPE_POINTER, m_loader.ptr(), "player", G_TYPE_BYTES, observerData.get(), "uri-mapper", G_TYPE_POINTER, reinterpret_cast<gpointer>(gStreamerChildResourceURI), nullptr);
         gst_element_set_context(GST_ELEMENT(GST_MESSAGE_SRC(message)), context.get());
         return true;
     }

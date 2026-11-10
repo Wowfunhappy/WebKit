@@ -13,9 +13,14 @@ inline URL gStreamerPlaybinURL(const URL& url)
     return URL { makeString("webkit-resource:"_s, url.string()) };
 }
 
-inline gchar* gStreamerPlaybinURI(const gchar* uri)
+// The resources a manifest names (variants, segments, initialization maps, keys): file: ones load
+// through WebCore as well, so the document's loading rules decide each of them.
+inline gchar* gStreamerChildResourceURI(const gchar* uri)
 {
-    return g_strdup(gStreamerPlaybinURL(URL { String::fromUTF8(uri) }).string().utf8().data());
+    URL url { String::fromUTF8(uri) };
+    if (url.protocolIsFile())
+        return g_strdup(makeString("webkit-resource:"_s, url.string()).utf8().data());
+    return g_strdup(gStreamerPlaybinURL(url).string().utf8().data());
 }
 
 inline URL webCoreURLFromGStreamerURI(String&& uri)
