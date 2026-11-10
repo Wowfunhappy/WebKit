@@ -959,10 +959,10 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.
 find_package(CURL 8.22 REQUIRED)
 find_library(COCOA_CURL_SSL_LIBRARY ssl PATHS "${AQUAWEBKIT_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
 find_library(COCOA_CURL_CRYPTO_LIBRARY crypto PATHS "${AQUAWEBKIT_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
-# The transfer decodes response bodies itself (CocoaCurlContentDecoder): zlib, the vendored brotli the
-# polyfill archive's consumers already link, and the zstd curl loads.
+# The transfer decodes response bodies itself (CocoaCurlContentDecoder): the zlib WebCore links as
+# ZLIB::ZLIB, the vendored brotli the polyfill archive's consumers already link, and the zstd curl loads.
 find_library(COCOA_CURL_ZSTD_LIBRARY zstd PATHS "${AQUAWEBKIT_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
-list(APPEND WebCore_LIBRARIES CURL::libcurl ${COCOA_CURL_SSL_LIBRARY} ${COCOA_CURL_CRYPTO_LIBRARY} ${COCOA_CURL_ZSTD_LIBRARY} z)
+list(APPEND WebCore_LIBRARIES CURL::libcurl ${COCOA_CURL_SSL_LIBRARY} ${COCOA_CURL_CRYPTO_LIBRARY} ${COCOA_CURL_ZSTD_LIBRARY})
 list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlContentDecoder.cpp
     ${WEBCORE_DIR}/platform/network/curl/CookieUtil.cpp

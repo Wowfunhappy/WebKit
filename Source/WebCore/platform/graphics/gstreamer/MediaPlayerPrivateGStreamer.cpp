@@ -2249,7 +2249,7 @@ void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* mess
 
     GST_DEBUG_OBJECT(pipeline(), "Updating tracks");
     // callOnMainThreadAndWait(WTF::move(callback));
-    // AQUAWEBKIT: regular playback runs on playbin3 (WEBKIT_GST_USE_PLAYBIN3, set by the port's GStreamer environment),
+    // AQUAWEBKIT: regular playback runs on playbin3 (this port's default in MediaPlayerPrivateGStreamer::createGSTPlayBin),
     // so a collection arrives on the streaming thread of the element posting it, which holds its pad's stream lock while
     // it waits here. A state change that deactivates pads waits for that lock, so changePipelineState() aborts the wait
     // first, as upstream's AbortableTaskQueue protocol does for its other main-thread waits.
@@ -3954,7 +3954,10 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
     auto usePlaybin3 = StringView::fromLatin1(g_getenv("WEBKIT_GST_USE_PLAYBIN3"));
     bool isMediaStream = url.protocolIs("mediastream"_s);
     bool isBlob = url.protocolIs("blob"_s);
-    if (isMediaSource() || isMediaStream || isBlob || usePlaybin3 == "1"_s)
+    // if (isMediaSource() || isMediaStream || isBlob || usePlaybin3 == "1"_s)
+    // AQUAWEBKIT: regular playback uses playbin3 unless the variable says "0"; HLS plays through hlsdemux2, which is
+    // streams-aware and needs decodebin3 above it.
+    if (isMediaSource() || isMediaStream || isBlob || usePlaybin3 != "0"_s)
         playbinName = "playbin3"_s;
 
     ASSERT(!m_pipeline);

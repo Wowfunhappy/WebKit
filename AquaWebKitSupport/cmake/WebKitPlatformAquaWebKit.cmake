@@ -77,13 +77,6 @@ add_custom_target(WebKitInspectorDockImages ALL DEPENDS ${_aquawebkit_dock_image
 add_dependencies(WebKit WebKitInspectorDockImages)
 
 
-# system zlib for the NetworkProcess gzip content-decoder (NetworkDataTaskCocoa.mm).
-# 10.9 CFNetwork suppresses its transparent Content-Encoding: gzip decode for .gz/.tgz URLs and hands the
-# raw compressed body to WebKit, which inflate() un-does. WebCore links ZLIB::ZLIB already, but that
-# framework's symbols are not re-exported to WebKit.
-find_package(ZLIB REQUIRED)
-list(APPEND WebKit_PRIVATE_LIBRARIES ZLIB::ZLIB)
-
 # The daemon uses Mozilla autopush and the service-worker notification path on Mavericks.
 if (ENABLE_WEB_PUSH_NOTIFICATIONS)
     list(REMOVE_ITEM WebKit_SOURCES

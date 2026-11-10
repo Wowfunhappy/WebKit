@@ -721,6 +721,19 @@ graft_i386 "$(s "$WEBCORE_BUNDLE")/Versions/A/WebCore" \
            "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore"
 graft_i386 "$(s "$WEBCLIP_BINARY")" "$STOCK_BACKUP$WEBCLIP_STOCK_BINARY"
 
+# Every staged x86_64 image takes zlib and bzip2 from the runtime's own copies (deps/build_deps.sh); the
+# grafted i386 slices are stock 10.9's.
+SYSTEM_COMPRESSION_LINKS="$( { webkit_machos; echo "$WEBRTC_STAGED"; find "$(s "$JSC_LIBS")" "$(s "$WEBCORE_LIBS")" -type f -name '*.dylib'; } \
+    | sort -u | while IFS= read -r f; do
+        "$OTOOL" -arch x86_64 -L "$f" | awk -v f="$f" 'NR > 1 && $1 ~ /^\/usr\/lib\/lib(z|bz2)\./ { print "  " f ": " $1 }'
+    done )"
+if [ -n "$SYSTEM_COMPRESSION_LINKS" ]; then
+    echo "$SYSTEM_COMPRESSION_LINKS" >&2
+    echo "ERROR: these staged images load the system zlib or bzip2" >&2
+    exit 1
+fi
+echo "  no staged image loads the system zlib or bzip2"
+
 # ---------------------------------------------------------------------------
 # Everything under /System is world-readable with traversable parents — the sandbox grants read on
 # nothing else, and a sandboxed WebContent loads dylibs from deep inside these bundles. `a+rX` adds

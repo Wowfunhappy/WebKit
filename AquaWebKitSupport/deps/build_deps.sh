@@ -11,8 +11,8 @@
 #                                          parser, which every @font-face payload goes through. CoreText
 #                                          then opens a font OTS re-serialised from its own bounds-checked
 #                                          table structures, rather than the bytes as they arrived. The
-#                                          colour and AAT tables OTS models no parser for are passed
-#                                          through unchanged, and those do reach CoreText verbatim.
+#                                          colour and AAT tables OTS models no parser for pass through
+#                                          it to the CoreText polyfill's own validators.
 #   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder. This build decodes every
 #                                          image format in WebCore rather than in 10.9's ImageIO,
 #                                          so each of the image libraries below is on the path
@@ -34,6 +34,10 @@
 #   SQLite 3.53.4 (shared)              -> WebCore databases and WAL checkpoint/truncation
 #   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
+#   zlib 1.4 (shared)                   -> every zlib caller in WebKit and the media runtime, in place
+#                                          of 10.9's zlib 1.2.5
+#   bzip2 1.0.8 (shared)                -> matroskademux's bzlib track decompression, in place of
+#                                          10.9's bzip2 1.0.6
 #   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
 #   LLVM runtimes 22.1.1 (shared)       -> the deployed libc++ and libc++abi every C++ image binds
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
@@ -568,7 +572,8 @@ echo "==== OTS 9.2.0 (OpenType Sanitiser) ===="
 # Graphite is off: CoreText renders no Graphite, and those tables are the only thing that wants lz4.
 # Hidden visibility: this lands in libpolyfill.a, whose members are hidden so the layer stays
 # confined to WebKit and nothing else in the process binds to it.
-# zlib is the system's; the woff2/brotli above cover the WOFF paths in ots.cc.
+# Its WOFF 1.0 zlib calls bind at the WebKit link to the zlib built below; the woff2/brotli above cover
+# the other WOFF paths in ots.cc.
 u=https://github.com/khaledhosny/ots/releases/download/v9.2.0/ots-9.2.0.tar.xz
 if ! built ots install/lib/libots.a; then
     d=$(get "$u" ots)
@@ -610,8 +615,8 @@ fi
 echo "==== libpng 1.6.43 ===="
 # WebCore's own PNGImageDecoder (USE_PNG), which ScalableImageDecoder::create routes files
 # carrying acTL to: 10.9's ImageIO reports an animated PNG as a single frame, so APNGs render
-# static. Decode only, static, beside libwebp; zlib comes from the SDK. The command-line tools
-# and the test programs are off.
+# static. Decode only, static, beside libwebp; its zlib calls bind at the WebKit link to the zlib built
+# below. The command-line tools and the test programs are off.
 u=https://download.sourceforge.net/libpng/libpng-1.6.43.tar.xz
 if ! built libpng install/lib/libpng16.a; then
     d=$(get "$u" libpng)
@@ -1054,6 +1059,44 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -j2 && make install ) || exit 1
 
+echo "==== zlib 1.4 ===="
+# The zlib every zlib caller in the media runtime and in WebKit links, in place of 10.9's zlib 1.2.5:
+# curl's gzip and deflate content decoding, GIO, libxml2, FFmpeg's demuxers, the GStreamer tag, ISO
+# and Matroska libraries, DecompressionStream, and the PNG, TIFF and WOFF decoders.
+d=$(get https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.gz zlib) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && "$CMAKE" -S . -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_SHARED=ON -DZLIB_BUILD_STATIC=OFF \
+        -DZLIB_BUILD_TESTING=OFF \
+        "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
+        -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_C_COMPILER_ARG1=--no-default-config \
+        ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE"} \
+        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_NAME_DIR=@rpath \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$NINJA" -C out -j2 && "$NINJA" -C out install ) || exit 1
+
+echo "==== bzip2 1.0.8 ===="
+# matroskademux decompresses bzlib-compressed Matroska tracks through it, in place of 10.9's bzip2 1.0.6.
+# The release's makefiles build a shared library only for Linux, so the library's seven sources link here.
+d=$(get https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz bzip2) || exit 1
+if prepare "$d"; then
+    prepared "$d"
+fi
+mkdir -p "$d/out" || exit 1
+for s in blocksort huffman crctable randtable compress decompress bzlib; do
+    $CC --no-default-config -O2 -mmacosx-version-min=10.9 -D_FILE_OFFSET_BITS=64 -c "$d/$s.c" -o "$d/out/$s.o" || exit 1
+done
+BZIP2_DYLIB="$STAGE/lib/libbz2.1.0.dylib"
+"$CC_BIN" --no-default-config -dynamiclib $LDFLAGS -install_name @rpath/libbz2.1.0.dylib \
+    -compatibility_version 1.0.0 -current_version 1.0.8 "$d"/out/*.o -o "$BZIP2_DYLIB.next" || exit 1
+if cmp -s "$BZIP2_DYLIB.next" "$BZIP2_DYLIB"; then rm -f "$BZIP2_DYLIB.next"; else mv -f "$BZIP2_DYLIB.next" "$BZIP2_DYLIB" || exit 1; fi
+ln -sf libbz2.1.0.dylib "$STAGE/lib/libbz2.dylib" || exit 1
+cp -p "$d/bzlib.h" "$STAGE/include/" || exit 1
+
 echo "==== zstd 1.5.7 ===="
 # Zstandard is one of the content encodings a modern browser accepts; curl advertises it and the
 # Cocoa curl transfer decodes it.
@@ -1126,7 +1169,7 @@ if prepare "$d"; then
         LDFLAGS="-L$STAGE/lib $LDFLAGS -L$CXX_RUNTIME -Wl,-rpath,$STAGE/lib -Wl,-rpath,$CXX_RUNTIME -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
         LIBS="-lc++ -lc++abi -framework Heimdal" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
         --enable-shared --disable-static \
-        --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib \
+        --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib="$STAGE" \
         --with-libpsl="$STAGE" --without-libssh2 --without-libssh --without-librtmp \
         --without-libidn2 --without-apple-idn --with-brotli="$STAGE" --with-zstd="$STAGE" \
         --without-ngtcp2 --without-nghttp3 --without-quiche --enable-gssapi-apple --enable-ntlm \
@@ -1244,7 +1287,7 @@ echo "==== Apple libxml2 39.10 (libxml2 2.9.13) ===="
 # here), as do the adaptive-demux, DASH and Smooth Streaming plugins and the libxslt below. Built as Apple's
 # Xcode project builds its libxml2 target: that target's sources against the configuration in
 # "Pregenerated Files", the dylib versions and export list Apple's xcconfigs give it, this tree's ICU (the
-# converters Apple's build enables) and the system zlib. The sources compile for a 14.0 target: Apple
+# converters Apple's build enables) and the zlib above. The sources compile for a 14.0 target: Apple
 # compiles its behaviour for macOS 13 and 14 (XPath resource limits, the ICU pivot buffer, the node-flag
 # accessors in tree.h) only at those targets. Those accessors keep internal flags in the high bits of
 # existing fields (xmlAttr.atype, xmlDoc.properties, xmlNode.extra), so callers built for older targets
@@ -1308,7 +1351,10 @@ f="$SRC/sqlite-$SQLITE_VERSION-LICENSE.md"
 [ -f "$f" ] || fetch https://raw.githubusercontent.com/sqlite/sqlite/version-3.53.4/LICENSE.md "$f" || exit 1
 d=$(get "$u" sqlite) || exit 1
 if prepare "$d"; then
-    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" ./configure --prefix="$STAGE" \
+    # configure links -lz into everything; only the shell's archive commands call it, so the library
+    # drops the load command.
+    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" LDFLAGS="$LDFLAGS -Wl,-dead_strip_dylibs" \
+        ./configure --prefix="$STAGE" \
         --enable-shared --disable-static --enable-threadsafe \
         --enable-fts3 --enable-fts4 --enable-fts5 --enable-rtree \
         --disable-readline --disable-static-shell ) || exit 1
@@ -1610,8 +1656,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-playbin3-remove-text-output.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-playbin3-remove-text-output.patch" ) \
       || { echo "FATAL: gst-plugins-base playbin3 text output patch failed to apply"; exit 1; }
+    # gl-png and gl-jpeg build gloverlay, which loads an overlay picture from a file; WebKit has no
+    # caller for it.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
-        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled ) || exit 1
+        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled -Dgl-png=disabled -Dgl-jpeg=disabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -1664,6 +1712,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-pause-stops-unit.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-pause-stops-unit.patch" ) \
       || { echo "gst-plugins-good osxaudio pause patch failed to apply"; exit 1; }
+    # osxaudio: built without atdec. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-no-atdec.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-no-atdec.patch" ) \
+      || { echo "FATAL: gst-plugins-good osxaudio atdec patch failed to apply"; exit 1; }
     # adaptivedemux2: fetch through URI source elements without libsoup. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" ) \
@@ -1704,10 +1756,12 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-pkcs7-padding.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-pkcs7-padding.patch" ) \
       || { echo "FATAL: gst-plugins-good hlsdemux2 PKCS7 padding patch failed to apply"; exit 1; }
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
+    # matroska looks libbz2 up by a bare library and header search rather than pkg-config; the search
+    # paths name the bzip2 above. png is disabled: WebCore decodes PNG itself.
+    ( cd "$d" && LDFLAGS="-L$STAGE/lib $LDFLAGS" CPPFLAGS="-I$STAGE/include" "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
         -Dflx=disabled -Dy4m=disabled -Dauparse=disabled -Dmultipart=disabled \
-        -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl ) || exit 1
+        -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl -Dbz2=enabled -Dpng=disabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -1798,9 +1852,10 @@ if prepare "$d"; then
       || { echo "gst-plugins-bad RRT fields patch failed to apply"; exit 1; }
     # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
     # aes is disabled: WebKit uses hlsdemux2's EVP decryption and has no aesenc/aesdec caller. hls is
-    # disabled: HLS plays through hlsdemux2 (gst-plugins-good).
+    # disabled: HLS plays through hlsdemux2 (gst-plugins-good). bz2 is disabled: bz2dec/bz2enc register at
+    # rank none, so nothing autoplugs them, and WebKit builds no pipeline with them.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
-        -Daes=disabled -Dhls=disabled -Ddash=disabled -Dsmoothstreaming=disabled -Dmxf=disabled \
+        -Daes=disabled -Dhls=disabled -Ddash=disabled -Dsmoothstreaming=disabled -Dmxf=disabled -Dbz2=disabled \
         -Dpnm=disabled -Divfparse=disabled -Dmidi=disabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dfdkaac=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
@@ -1901,7 +1956,7 @@ if prepare "$d"; then
         --disable-everything \
         --enable-decoder=aac,aac_latm,ac3,adpcm_ima_qt,adpcm_swf,alac,dca,eac3,flv,h263,h264,hevc,libdav1d,mpeg2video,mpeg4,msvideo1 \
         --enable-encoder=utvideo --enable-muxer=mp4 --enable-parser=hevc \
-        --enable-libdav1d \
+        --enable-libdav1d --enable-zlib \
         --x86asmexe="$NASM" \
         --extra-cflags="-mmacosx-version-min=10.9" \
         --extra-ldflags="$LDFLAGS" > /dev/null ) || exit 1
@@ -2063,6 +2118,7 @@ cp -p "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -p "$STAGE/include/libpsl.h"      "$DEST/include/"
 cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -p "$STAGE/include/zstd.h" "$STAGE/include/zstd_errors.h" "$DEST/include/"
+cp -p "$STAGE/include/zlib.h" "$STAGE/include/zconf.h" "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
@@ -2375,6 +2431,21 @@ if [ -s "$UND/strong-missing" ] || [ -s "$UND/weak-missing" ] || [ -s "$UND/unat
   exit 1
 fi
 echo "  ok: every undefined reference in the deployed runtime resolves on 10.9"
+
+echo "==== system zlib and bzip2 ===="
+# Every library and tool deps/build deploys takes zlib and bzip2 from the copies built above.
+SYSTEM_COMPRESSION="$RUN/system-compression"; : > "$SYSTEM_COMPRESSION"
+for f in "$DEST"/lib/*.dylib "$DEST"/lib/gstreamer-1.0/*.dylib "$DEST"/bin/*; do
+  [ -L "$f" ] || [ ! -f "$f" ] && continue
+  "$CCTOOLS/otool" -L "$f" | awk -v f="${f#$DEST/}" \
+    'NR > 1 && $1 ~ /^\/usr\/lib\/lib(z|bz2)\./ { print "    " f ": " $1 }' >> "$SYSTEM_COMPRESSION"
+done
+if [ -s "$SYSTEM_COMPRESSION" ]; then
+  cat "$SYSTEM_COMPRESSION"
+  echo "  FAIL: these deployed images load the system zlib or bzip2"
+  exit 1
+fi
+echo "  ok: no deployed image loads the system zlib or bzip2"
 
 echo "==== gap archive manifest ===="
 cp "$GAP_MANIFEST"  "$DEST/gap-sources.sha256" || exit 1

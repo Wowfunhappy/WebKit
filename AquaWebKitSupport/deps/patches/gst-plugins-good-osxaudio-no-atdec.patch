@@ -1,0 +1,43 @@
+Subject: osxaudio: build the plugin without atdec
+
+atdec decodes AAC and MP3 with the system's AudioToolbox decoders. The
+osxaudio plugin has no option to leave it out, so this drops its source and
+its registration: neither the element nor its AudioToolbox decoding path
+ships. The plugin keeps its sink, source, device provider and atenc.
+
+--- a/sys/osxaudio/meson.build
++++ b/sys/osxaudio/meson.build
+@@ -6,7 +6,6 @@
+   'gstosxcoreaudiocommon.c',
+   'gstosxcoreaudio.c',
+   'gstosxaudio.c',
+-  'gstatdec.c',
+   'gstatenc.c',
+ ]
+ 
+@@ -15,7 +14,6 @@
+   'gstosxaudiodeviceprovider.h',
+   'gstatenc.h',
+   'gstosxaudiosrc.h',
+-  'gstatdec.h',
+   'gstiosaudiosession.h',
+   'gstosxaudioelement.h',
+   'gstosxaudioringbuffer.h',
+--- a/sys/osxaudio/gstosxaudio.c
++++ b/sys/osxaudio/gstosxaudio.c
+@@ -30,7 +30,6 @@
+ #include "gstosxaudioelement.h"
+ #include "gstosxaudiosink.h"
+ #include "gstosxaudiosrc.h"
+-#include "gstatdec.h"
+ #include "gstatenc.h"
+ #if TARGET_OS_OSX
+ #include "gstosxaudiodeviceprovider.h"
+@@ -43,7 +42,6 @@
+ 
+   ret |= GST_ELEMENT_REGISTER (osxaudiosrc, plugin);
+   ret |= GST_ELEMENT_REGISTER (osxaudiosink, plugin);
+-  ret |= GST_ELEMENT_REGISTER (atdec, plugin);
+   ret |= GST_ELEMENT_REGISTER (atenc, plugin);
+ #if TARGET_OS_OSX
+   ret |= GST_DEVICE_PROVIDER_REGISTER (osxaudiodeviceprovider, plugin);

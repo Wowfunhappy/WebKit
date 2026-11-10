@@ -180,9 +180,8 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
             # ICU's character break iterator, which the CoreFoundation and CoreText polyfills segment grapheme
             # clusters with.
             "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib"
-            # libpng's and libtiff's own inflate and CRC. WebCore already reaches the system zlib
-            # through its other dependencies; JavaScriptCore and the XPC services do not.
-            "z"
+            # libpng's, libtiff's and OTS's inflate and CRC.
+            "${AQUAWEBKIT_DEPS}/lib/libz.1.dylib"
             "${AQUAWEBKIT_DEPS}/lib/libpsl.5.dylib"
             # BoringSSL's point decoding, which the CommonCrypto EC import polyfill validates with.
             "${AQUAWEBKIT_DEPS}/lib/libcrypto.dylib")

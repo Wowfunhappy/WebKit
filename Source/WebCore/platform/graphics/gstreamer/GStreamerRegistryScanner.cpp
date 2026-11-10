@@ -493,7 +493,9 @@ void GStreamerRegistryScanner::initializeDecoders(const GStreamerRegistryScanner
         if (envCanPlayUsac.isEmpty()) {
             // A few hardware platforms (Amlogic and MediaTek) explicitly report support for USAC via stream-format=usac.
             // If an element supporting such caps exists, we can safely assume USAC to be supported. See: https://github.com/WebPlatformForEmbedded/WPEWebKit/pull/1654
-            canPlayUsac = factories.hasElementForMediaType(ElementFactories::Type::AudioDecoder, "audio/mpeg, mpegversion=(int)4, stream-format=(string)usac"_s).isSupported;
+            // canPlayUsac = factories.hasElementForMediaType(ElementFactories::Type::AudioDecoder, "audio/mpeg, mpegversion=(int)4, stream-format=(string)usac"_s).isSupported;
+            // AQUAWEBKIT: fdkaacdec (configureGStreamerFeatureRanks ranks it first) decodes MPEG-D USAC, including its LPD speech core.
+            canPlayUsac = true;
         } else {
             canPlayUsac = (WTF::equalLettersIgnoringASCIICase(envCanPlayUsac.span(), "true"_s)
                 || WTF::equalLettersIgnoringASCIICase(envCanPlayUsac.span(), "1"_s));
@@ -666,8 +668,11 @@ void GStreamerRegistryScanner::initializeDecoders(const GStreamerRegistryScanner
         { ElementFactories::Type::Demuxer, "video/x-ms-asf"_s, { }, { } },
     };
 
-    if (auto hlsSupport = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_HLS_SUPPORT"))) {
-        if (hlsSupport == "1"_s)
+    // if (auto hlsSupport = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_HLS_SUPPORT"))) {
+    //     if (hlsSupport == "1"_s)
+    // AQUAWEBKIT: native HLS (hlsdemux2) is on unless the variable says otherwise.
+    auto hlsSupport = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_ENABLE_HLS_SUPPORT"));
+    if (!hlsSupport || hlsSupport == "1"_s) {
             mapping.append({ ElementFactories::Type::Demuxer, "application/x-hls"_s, { "application/vnd.apple.mpegurl"_s, "application/x-mpegurl"_s }, { } });
     }
 

@@ -54,11 +54,12 @@ print(compile + " -x objective-c++ -fno-objc-arc -c " + shlex.quote(repo + "/Aqu
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineFirefoxArchive.cpp") + " -o " + shlex.quote(work + "/firefox.o"))
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/tests/widevine-image/main.cpp") + " -o " + shlex.quote(work + "/main.o"))
 # The toolchain's default configuration links its own C++ runtime and unwinder; the link names the
-# installed JavaScriptCore and its C++ runtime instead.
+# installed JavaScriptCore with its C++ runtime and zlib instead.
 sysroot = flags[flags.index("-isysroot") + 1]
 print(" ".join(shlex.quote(f) for f in [flags[0], "--no-default-config", "-isysroot", sysroot, "-mmacosx-version-min=10.9", "-fuse-ld=lld"])
       + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/firefox.o") + " " + shlex.quote(work + "/main.o")
-      + " /System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lobjc -lz -larchive"
+      + " /System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lobjc -larchive"
+      + " /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libz.1.dylib"
       + " -nostdlib++ /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++.1.dylib"
       + " /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++abi.1.dylib")
 PY

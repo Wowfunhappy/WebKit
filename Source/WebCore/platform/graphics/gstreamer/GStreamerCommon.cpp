@@ -513,6 +513,8 @@ bool ensureGStreamerInitializedNonWebProcess()
         GUniqueOutPtr<GError> error;
         isGStreamerInitialized = gst_init_check(nullptr, nullptr, &error.outPtr());
         ASSERT_WITH_MESSAGE(isGStreamerInitialized, "GStreamer initialization failed: %s", error ? error->message : "unknown error occurred");
+        if (isGStreamerInitialized)
+            configureGStreamerFeatureRanks(); // AQUAWEBKIT: this port's element ranks, set as gst_init() finishes.
         GST_DEBUG_CATEGORY_INIT(webkit_gst_common_debug, "webkitcommon", 0, "WebKit Common utilities");
     });
 
@@ -565,6 +567,8 @@ bool ensureGStreamerInitialized()
         GUniqueOutPtr<GError> error;
         isGStreamerInitialized = gst_init_check(&argc, &argv, &error.outPtr());
         s_webkitGstInitTime = gst_util_get_timestamp();
+        if (isGStreamerInitialized)
+            configureGStreamerFeatureRanks(); // AQUAWEBKIT: this port's element ranks, set as gst_init() finishes.
         ASSERT_WITH_MESSAGE(isGStreamerInitialized, "GStreamer initialization failed: %s", error ? error->message : "unknown error occurred");
         g_strfreev(argv);
         GST_DEBUG_CATEGORY_INIT(webkit_gst_common_debug, "webkitcommon", 0, "WebKit Common utilities");

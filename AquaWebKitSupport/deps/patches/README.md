@@ -567,6 +567,13 @@ A source keeps it. `gst_core_audio_initialize()` sizes `recBufferList` from the 
 
 The ring buffer pauses (`gst_audio_ring_buffer_pause_unlocked()`) from a streaming or state-change thread, under its object lock and after releasing its waiters, exactly as `gst_audio_ring_buffer_stop()` stops, and the sink's render callback takes that lock only to signal a waiter. The patch has pause stop the unit with `gst_core_audio_io_proc_stop()`, the stop path's own call, which stops the AudioUnit and then removes its render callback. Resuming goes through `gst_core_audio_io_proc_start()`, which installs the callback again and starts the unit. The S/PDIF passthrough path already removes its IO proc on pause and is unchanged.
 
+## gst-plugins-good-osxaudio-no-atdec.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `sys/osxaudio/gstosxaudio.c`, `sys/osxaudio/meson.build`
+**Applied to:** libgstosxaudio
+
+`atdec` decodes AAC and MP3 with 10.9's AudioToolbox decoders, which no longer receive fixes. The osxaudio plugin has no build option for it, so the patch drops `gstatdec.c` from the plugin's sources and its registration from `plugin_init`: neither the element nor its AudioToolbox decoding path ships. AAC decodes in `fdkaacdec` and `avdec_aac`, MP3 in `mpg123audiodec`. `osxaudiosink`, `osxaudiosrc`, the device provider and `atenc`, which encodes audio WebKit produces, stay.
+
 ## gst-plugins-good-adaptivedemux2-uri-source-transfers.patch
 
 **Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/downloadhelper.c`, `downloadhelper.h`, `gstadaptivedemux.c`, `gstadaptivedemuxelement.c`

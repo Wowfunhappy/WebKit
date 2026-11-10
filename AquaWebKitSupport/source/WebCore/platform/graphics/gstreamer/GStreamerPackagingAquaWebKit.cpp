@@ -3,6 +3,7 @@
 
 #if USE(GSTREAMER)
 
+#include "GRefPtrGStreamer.h"
 #include <gst/gst.h>
 #include <wtf/FileSystem.h>
 #include <wtf/text/WTFString.h>
@@ -56,6 +57,21 @@ void configureGStreamerCacheLocation()
     auto registryPath = FileSystem::pathByAppendingComponent(registryDirectory, registryFileName);
     g_setenv("GST_REGISTRY", registryPath.utf8().data(), FALSE);
 #endif
+}
+
+// AAC decodes in fdkaacdec, on the FDK AAC library AquaWebKitSupport/deps ships, which decodes the
+// object types avdec_aac does and MPEG-D USAC. The parsers ranked NONE are for formats with no decoder
+// here (AMR, SBC, WavPack, H.266, JPEG 2000, PNG), raw media no demuxer here outputs unaligned, and
+// MCC/SCC caption files, so decodebin never plugs them.
+void configureGStreamerFeatureRanks()
+{
+    if (GRefPtr factory = adoptGRef(gst_element_factory_find("fdkaacdec")))
+        gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_PRIMARY + 1);
+    for (auto* elementName : { "amrparse", "sbcparse", "wavpackparse", "h266parse", "jpeg2000parse", "pngparse",
+        "unalignedaudioparse", "unalignedvideoparse", "mccparse", "sccparse" }) {
+        if (GRefPtr factory = adoptGRef(gst_element_factory_find(elementName)))
+            gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
+    }
 }
 
 } // namespace WebCore

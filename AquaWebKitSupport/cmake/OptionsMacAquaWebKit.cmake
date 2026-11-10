@@ -468,6 +468,14 @@ set_target_properties(SQLite::SQLite3 PROPERTIES
     IMPORTED_LOCATION "${AQUAWEBKIT_DEPS}/lib/libsqlite3.dylib"
     INTERFACE_INCLUDE_DIRECTORIES "${AQUAWEBKIT_DEPS}/include")
 
+# zlib 1.4 from deps/build instead of the SDK tbd, which binds 10.9's zlib 1.2.5. The cache entries
+# answer FindZLIB for the targets that call it.
+set(ZLIB_INCLUDE_DIR "${AQUAWEBKIT_DEPS}/include" CACHE PATH "" FORCE)
+set(ZLIB_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libz.1.dylib" CACHE FILEPATH "" FORCE)
+set_target_properties(ZLIB::ZLIB PROPERTIES
+    IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}")
+
 # Apple's libxml2 and libxslt from deps/build (macOS 26.5's, @rpath install names, shipped alongside
 # GStreamer) instead of the SDK tbds, which bind /usr/lib/libxml2.2.dylib and /usr/lib/libxslt.1.dylib:
 # libxml2 2.9.0 on 10.9, whose __xmlRaiseError crashes on fatal parse errors from SVG/XML payloads. Their
