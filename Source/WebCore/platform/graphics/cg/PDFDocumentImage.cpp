@@ -210,7 +210,9 @@ void PDFDocumentImage::destroyDecodedData(bool)
     decodedSizeChanged(0);
 }
 
-#if !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE)
+// AQUAWEBKIT: the CoreGraphics backend compiles only when neither PDFKit nor hayro (PDFDocumentImageHayro.cpp) draws PDF images.
+// #if !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE)
+#if !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE) && !USE(HAYRO_FOR_PDFDOCUMENTIMAGE)
 
 void PDFDocumentImage::createPDFDocument()
 {
@@ -261,7 +263,7 @@ void PDFDocumentImage::drawPDFPage(GraphicsContext& context)
     CGContextDrawPDFPageWithAnnotations(context.platformContext(), CGPDFDocumentGetPage(m_document.get(), 1), nullptr);
 }
 
-#endif // !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE)
+#endif // AQUAWEBKIT: closes the !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE) && !USE(HAYRO_FOR_PDFDOCUMENTIMAGE) guard above.
 
 void PDFDocumentImage::dump(TextStream& ts) const
 {

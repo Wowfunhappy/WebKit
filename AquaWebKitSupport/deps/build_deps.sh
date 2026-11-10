@@ -39,6 +39,8 @@
 #   bzip2 1.0.8 (shared)                -> matroskademux's bzlib track decompression, in place of
 #                                          10.9's bzip2 1.0.6
 #   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
+#   wk_pdf on hayro 0.9.0 (shared)      -> PDFDocumentImage's PDF parser and drawing (this port's
+#                                          crate, source/WebCore/platform/graphics/hayro)
 #   LLVM runtimes 22.1.1 (shared)       -> the deployed libc++ and libc++abi every C++ image binds
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
 #   Apache httpd 2.4.68                -> layout-test HTTP/HTTPS, with the toolchain's OpenSSL
@@ -1924,6 +1926,34 @@ fi
 ) || exit 1
 
 
+echo "==== wk_pdf (hayro 0.9.0) ===="
+# PDFDocumentImage's PDF parser and drawing: this port's crate over hayro-interpret
+# (source/WebCore/platform/graphics/hayro), a C-interface dylib WebCore loads on first use. It builds
+# with the closedcaption plugin's flags.
+(
+    bash "$REPO/AquaWebKitSupport/toolchain/scripts/build_rust.sh" || exit 1
+    . "$REPO/AquaWebKitSupport/toolchain/scripts/rust-env.sh"
+    export CARGO_TARGET_DIR="$SCRATCH/build-wk-pdf/target"
+    rust_flags=(
+        -C target-cpu=core2
+        -C "linker=$CC_BIN"
+        -C link-arg=--no-default-config -C link-arg=-fuse-ld=lld
+        -C link-arg=-isysroot -C "link-arg=$SDK"
+        -C link-arg=-mmacosx-version-min=10.9
+        -C "link-arg=-Wl,-force_load,$GAP_A"
+        -C link-arg=-framework -C link-arg=CoreFoundation
+        -C link-arg=-Wl,-headerpad_max_install_names
+        -C link-arg=-Wl,-install_name,@rpath/libwk_pdf.dylib
+    )
+    CARGO_ENCODED_RUSTFLAGS=$(IFS=$'\037'; printf '%s' "${rust_flags[*]}")
+    export CARGO_ENCODED_RUSTFLAGS
+    cd "$REPO/AquaWebKitSupport/source/WebCore/platform/graphics/hayro" || exit 1
+    "$CARGO" rustc --locked --release --lib --target x86_64-apple-darwin \
+        -Zbuild-std=std,panic_unwind -j 2 || exit 1
+    cp -p "$CARGO_TARGET_DIR/x86_64-apple-darwin/release/libwk_pdf.dylib" "$STAGE/lib/libwk_pdf.dylib" || exit 1
+    cp -p wk_pdf.h "$STAGE/include/" || exit 1
+) || exit 1
+
 echo "==== FFmpeg 8.1.3 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
 # behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg,
@@ -2119,6 +2149,7 @@ cp -p "$STAGE/include/libpsl.h"      "$DEST/include/"
 cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -p "$STAGE/include/zstd.h" "$STAGE/include/zstd_errors.h" "$DEST/include/"
 cp -p "$STAGE/include/zlib.h" "$STAGE/include/zconf.h" "$DEST/include/"
+cp -p "$STAGE/include/wk_pdf.h" "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"

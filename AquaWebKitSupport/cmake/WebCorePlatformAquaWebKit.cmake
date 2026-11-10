@@ -952,6 +952,10 @@ list(REMOVE_ITEM WebCore_SOURCES
 list(REMOVE_ITEM WebCore_SOURCES page/mac/TextIndicatorWindow.mm)
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.h)
 
+# PDFDocumentImage draws PDF images through hayro: platform/graphics/hayro, which deps/build_deps.sh builds
+# into libwk_pdf.dylib and PDFDocumentImageHayro.cpp loads on first use.
+list(APPEND WebCore_SOURCES ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/cg/PDFDocumentImageHayro.cpp)
+
 # The Cocoa curl transport: curl carries every HTTP(S) transfer while WebCore's CF platform types stay
 # selected, and ExternalURLRewrite retargets the connection of each HTTP(S) request those transfers send.
 # These are this backport's own sources, so they live with the rest of the 10.9 glue;

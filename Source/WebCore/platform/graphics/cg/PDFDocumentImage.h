@@ -35,11 +35,14 @@
 #if USE(CG)
 
 #if PLATFORM(MAC)
-#define USE_PDFKIT_FOR_PDFDOCUMENTIMAGE 1
+// AQUAWEBKIT: hayro parses PDF images and draws them as CoreGraphics drawing (AquaWebKitSupport/source/WebCore/platform/graphics/cg/PDFDocumentImageHayro.cpp).
+// #define USE_PDFKIT_FOR_PDFDOCUMENTIMAGE 1
+#define USE_HAYRO_FOR_PDFDOCUMENTIMAGE 1
 #endif
 
 typedef struct CGPDFDocument *CGPDFDocumentRef;
 OBJC_CLASS PDFDocument;
+typedef struct WKPDFDocument WKPDFDocument; // AQUAWEBKIT: hayro's document handle (wk_pdf.h).
 
 namespace WebCore {
 
@@ -96,6 +99,11 @@ private:
 
 #if USE(PDFKIT_FOR_PDFDOCUMENTIMAGE)
     RetainPtr<PDFDocument> m_document;
+#elif USE(HAYRO_FOR_PDFDOCUMENTIMAGE) // AQUAWEBKIT: the hayro document handle.
+    struct HayroDocumentDeleter {
+        void operator()(WKPDFDocument*) const;
+    };
+    std::unique_ptr<WKPDFDocument, HayroDocumentDeleter> m_document;
 #else
     RetainPtr<CGPDFDocumentRef> m_document;
 #endif

@@ -125,8 +125,9 @@ LIPO="$CCTOOLS/lipo"
 # directory of the lowest framework that loads it (see JSC_LIBS above):
 #   jsc        everything JavaScriptCore's binaries load, transitively
 #   webcore    everything else WebCore, WebKitLegacy, WebKit and libwebrtc load, transitively,
-#              short of GStreamer's own libgst* libraries; and libopus, which the polyfill layer's
-#              AudioToolbox Opus encoder opens beside WebCore (AudioToolboxOpus.c)
+#              short of GStreamer's own libgst* libraries; libopus, which the polyfill layer's
+#              AudioToolbox Opus encoder opens beside WebCore (AudioToolboxOpus.c); and libwk_pdf, which
+#              PDFDocumentImageHayro.cpp opens beside WebCore
 #   gstreamer  the libgst* libraries those load and everything the plugins load, transitively
 # A library nothing loads does not ship. $1 = the build's lib dir (the linked frameworks and
 # libwebrtc.dylib), $2 = the prefix's lib dir. Prints "<home> <leaf> <file>" per library, where
@@ -176,7 +177,7 @@ wk_runtime_library_homes() {
     for f in $(_wk_framework_machos JavaScriptCore); do queue="$queue $(_wk_rpath_leaves "$f")"; done
     _wk_claim jsc $queue
 
-    queue="libopus.0.dylib $(_wk_rpath_leaves "$libdir/libwebrtc.dylib")"
+    queue="libopus.0.dylib libwk_pdf.dylib $(_wk_rpath_leaves "$libdir/libwebrtc.dylib")"
     for fw in WebKitLegacy WebCore WebKit; do
         for f in $(_wk_framework_machos $fw); do queue="$queue $(_wk_rpath_leaves "$f")"; done
     done
