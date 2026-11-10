@@ -46,6 +46,7 @@ id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapperRef)
         return WebKit::wrapper(impl.get());
     }
     // AQUAWEBKIT: see WKObjCTypeWrapperRef.h.
-    // return nil;
-    return WebKit::toImpl(wrapperRef)->rootObject();
+    if (wrapperRef && WKGetTypeID(wrapperRef) == WKObjCTypeWrapperGetTypeID())
+        return WebKit::toImpl(wrapperRef)->rootObject();
+    return nil;
 }

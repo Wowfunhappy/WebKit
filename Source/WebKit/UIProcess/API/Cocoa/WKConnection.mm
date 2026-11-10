@@ -63,7 +63,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     if ([delegate respondsToSelector:@selector(connection:didReceiveMessageWithName:body:)]) {
         auto name = bridge_cast(adoptCF(WKStringCopyCFString(kCFAllocatorDefault, messageName)));
-        id body = static_cast<WebKit::ObjCObjectGraph*>(WebKit::toImpl(messageBody))->rootObject();
+        RefPtr graph = dynamicDowncast<WebKit::ObjCObjectGraph>(WebKit::toImpl(messageBody));
+        id body = graph ? graph->rootObject() : nil;
         [delegate connection:connection didReceiveMessageWithName:name.get() body:body];
     }
 }
