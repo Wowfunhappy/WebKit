@@ -70,11 +70,12 @@ private:
     bool valid() const;
     bool sameSource() const;
     void startCapture();
-    void beginSourceChange();
+    void beginSourceChange(bool drain = true);
     void resumeAfterSourceChange();
     void detachElement();
     void interruptCapture();
     void finishCapture();
+    void finishWithCapturedSegments();
     void append(double, double, double, double, Ref<SharedBuffer>&&, CompletionHandler<void()>&&);
     void initialized(Expected<Ref<MediaRestreamSource>, String>&&);
     String playlist(std::optional<uint64_t> subtitle = std::nullopt) const;
@@ -142,6 +143,7 @@ private:
     bool m_rebinding { false };
     bool m_loopSeeked { false };
     bool m_captureDrained { false };
+    bool m_finishingWithCapturedSegments { false };
     bool m_storagePressure { false };
     URL m_initialURL;
     uint64_t m_presentationOwner;

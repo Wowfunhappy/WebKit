@@ -114,6 +114,10 @@ public:
                 source->beginSourceChange();
                 return;
             }
+            if (event.type() == eventNames().errorEvent) {
+                source->beginSourceChange(false);
+                return;
+            }
             if (source->m_rebinding && (event.type() == eventNames().seekingEvent || event.type() == eventNames().seekedEvent)) {
                 source->resumeAfterSourceChange();
                 return;
@@ -131,7 +135,7 @@ public:
                     source->m_loopSeeked = true;
                 source->startCapture();
             } else if (event.type() == eventNames().endedEvent) {
-                if (source->m_captureDrained && !source->m_element->loop())
+                if (source->m_captureDrained && !source->m_element->loop() && !source->m_finishingWithCapturedSegments)
                     source->finishCapture();
             } else
                 source->stop();
@@ -346,7 +350,7 @@ MediaRestreamSource::~MediaRestreamSource()
 
 bool MediaRestreamSource::valid() const
 {
-    return !m_stopped && (m_ended || (m_rebinding && m_element && m_document && &m_element->document() == m_document.get() && m_document->page()) || sameSource());
+    return !m_stopped && (m_ended || m_finishingWithCapturedSegments || (m_rebinding && m_element && m_document && &m_element->document() == m_document.get() && m_document->page()) || sameSource());
 }
 bool MediaRestreamSource::canNegotiateRemotePlayback(HTMLMediaElement& element)
 {
@@ -456,7 +460,7 @@ void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<
     }
 }
 
-void MediaRestreamSource::beginSourceChange()
+void MediaRestreamSource::beginSourceChange(bool drain)
 {
     if (m_stopped)
         return;
@@ -469,10 +473,15 @@ void MediaRestreamSource::beginSourceChange()
         m_pipeline = nullptr;
         return;
     }
-    if (std::exchange(m_rebinding, true))
+    if (std::exchange(m_rebinding, true)) {
+        if (!drain && !m_captureDrained) {
+            interruptCapture();
+            m_captureDrained = true;
+        }
         return;
+    }
     m_restartingLoop = false;
-    if (!m_capture || !m_capture->finishInput()) {
+    if (!drain || !m_capture || !m_capture->finishInput()) {
         interruptCapture();
         m_captureDrained = true;
     }
@@ -480,7 +489,7 @@ void MediaRestreamSource::beginSourceChange()
 
 void MediaRestreamSource::resumeAfterSourceChange()
 {
-    if (!m_rebinding || !valid() || !m_captureDrained || m_element->readyState() < HTMLMediaElement::HAVE_CURRENT_DATA || m_element->seeking())
+    if (!m_rebinding || m_finishingWithCapturedSegments || !valid() || !m_captureDrained || m_element->readyState() < HTMLMediaElement::HAVE_CURRENT_DATA || m_element->seeking())
         return;
     auto* backend = playbackBackend(*m_element);
     if (!backend || !backend->pipeline())
@@ -503,7 +512,7 @@ void MediaRestreamSource::resumeAfterSourceChange()
 
 void MediaRestreamSource::startCapture()
 {
-    if (!valid() || m_rebinding || m_ended || m_element->seeking())
+    if (!valid() || m_rebinding || m_ended || m_finishingWithCapturedSegments || m_element->seeking())
         return;
     if (m_capture && !(m_captureDrained && m_restartingLoop && m_loopSeeked))
         return;
@@ -564,10 +573,8 @@ void MediaRestreamSource::startCapture()
             }
         },
         [weakThis = WeakPtr { *this }, generation] {
-            if (RefPtr source = weakThis.get(); source && source->m_generation == generation) {
-                source->initialized(makeUnexpected("unsupported-source"_s));
-                source->stop();
-            }
+            if (RefPtr source = weakThis.get(); source && source->m_generation == generation)
+                source->finishWithCapturedSegments();
         }
     }, includeAudio, m_captureSize, m_videoCodec, m_frames);
     if (previous)
@@ -592,6 +599,31 @@ void MediaRestreamSource::finishCapture()
         initialized(m_segments.empty() ? Expected<Ref<MediaRestreamSource>, String>(makeUnexpected("no-source"_s)) : Expected<Ref<MediaRestreamSource>, String>(Ref { *this }));
     if (m_didFinish)
         std::exchange(m_didFinish, { })();
+}
+
+void MediaRestreamSource::finishWithCapturedSegments()
+{
+    if (m_stopped || m_ended || std::exchange(m_finishingWithCapturedSegments, true))
+        return;
+    ++m_generation;
+    if (auto capture = std::exchange(m_capture, nullptr))
+        capture->stop();
+    m_storage->queue->dispatch([weakThis = WeakPtr { *this }]() mutable {
+        callOnMainThread([weakThis = WTF::move(weakThis)] {
+            RefPtr source = weakThis.get();
+            if (!source || source->m_stopped || source->m_ended)
+                return;
+            source->m_finishingWithCapturedSegments = false;
+            source->m_rebinding = false;
+            if (source->m_ready || source->m_segments.empty()) {
+                source->initialized(makeUnexpected("unsupported-source"_s));
+                return source->stop();
+            }
+            if (source->m_subtitles)
+                source->m_subtitles->freeze();
+            source->finishCapture();
+        });
+    });
 }
 
 bool MediaRestreamSource::releasePage()

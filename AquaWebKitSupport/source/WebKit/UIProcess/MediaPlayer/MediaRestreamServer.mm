@@ -405,7 +405,12 @@ struct MediaRestreamServer::Impl {
             if (sent < output.size()) {
                 if (!writer) {
                     std::weak_ptr<Client> weak = shared_from_this();
-                    writer = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, socket, 0, dispatch_get_main_queue());
+                    // Each dispatch source owns a descriptor and closes it in its own cancel handler.
+                    int descriptor = fcntl(socket, F_DUPFD_CLOEXEC, 0);
+                    if (descriptor < 0)
+                        return close();
+                    writer = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, descriptor, 0, dispatch_get_main_queue());
+                    dispatch_source_set_cancel_handler(writer, ^{ ::close(descriptor); });
                     dispatch_source_set_event_handler(writer, ^{
                         if (auto client = weak.lock(); client && !client->closed)
                             client->write();

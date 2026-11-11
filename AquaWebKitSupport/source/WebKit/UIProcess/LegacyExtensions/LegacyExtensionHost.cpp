@@ -1488,8 +1488,7 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
         if (!object)
             return;
         auto portID = object->getString("portId"_s);
-        auto iterator = m_ports.find(portID);
-        if (iterator == m_ports.end())
+        if (portID.isEmpty() || !m_ports.contains(portID))
             return;
         Endpoint endpoint { nullptr, frameID, documentID, extensionKey };
         if (auto identifier = m_hostContextByRemoteFrame.get(frameID)) {
@@ -2031,6 +2030,8 @@ void LegacyExtensionHost::routeConnect(const Endpoint& from, const String& exten
 
 void LegacyExtensionHost::routePost(const Endpoint& from, const String& message, const String& portID)
 {
+    if (portID.isEmpty())
+        return;
     auto iterator = m_ports.find(portID);
     if (iterator == m_ports.end())
         return;
@@ -2051,6 +2052,8 @@ void LegacyExtensionHost::routePost(const Endpoint& from, const String& message,
 
 void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& portID, const String& error)
 {
+    if (portID.isEmpty())
+        return;
     auto iterator = m_ports.find(portID);
     if (iterator == m_ports.end())
         return;
@@ -2128,6 +2131,8 @@ void LegacyExtensionHost::routeOneShotMessage(const Endpoint& from, const String
 void LegacyExtensionHost::routeReply(const Endpoint& from, JSON::Object& reply)
 {
     auto messageID = reply.getString("msgId"_s);
+    if (messageID.isEmpty())
+        return;
     auto iterator = m_oneShotMessages.find(messageID);
     if (iterator == m_oneShotMessages.end())
         return;
