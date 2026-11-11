@@ -210,7 +210,8 @@ StyleAppearance RenderTheme::adjustAppearanceForElement(Style::ComputedStyle& st
 #if ENABLE(APPLE_PAY)
     // Only apply `appearance: -apple-pay-button` on buttons and non-form controls.
     if (appearance == StyleAppearance::ApplePayButton) {
-        if (autoAppearance == StyleAppearance::Button)
+        // if (autoAppearance == StyleAppearance::Button)
+        if (autoAppearance == StyleAppearance::Button || autoAppearance == StyleAppearance::PushButton) // AQUAWEBKIT: an input button's automatic appearance is PushButton on Mac (autoAppearanceForElement).
             return appearance;
 
         if (!inputElement && autoAppearance == StyleAppearance::None)

@@ -1683,17 +1683,9 @@ http/wpt/webcodecs/configure-encoder-big-frame-size.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-writing-modes/forms/checkbox-switch-input-computed-style.tentative.html [ Skip ]
 fast/forms/switch [ Skip ]
 
-# ENABLE_APPLE_PAY is 0 (10.9 has no Apple Pay): no apple-pay-button appearance and no apple-pay-logo named images.
-fast/css/appearance-apple-pay-button-border-radius-longhands.html [ Skip ]
-fast/css/appearance-apple-pay-button-border-radius.html [ Skip ]
-fast/css/appearance-apple-pay-button-border-width.html [ Skip ]
-fast/css/appearance-apple-pay-button-default-corners.html [ Skip ]
-fast/css/appearance-apple-pay-button-div.html [ Skip ]
-fast/css/appearance-apple-pay-button-inapplicable.html [ Skip ]
-fast/css/appearance-apple-pay-button-input-type-button.html [ Skip ]
-fast/css/appearance-apple-pay-button-style-dynamic-update.html [ Skip ]
-fast/css/appearance-apple-pay-button.html [ Skip ]
-fast/css/getComputedStyle/computed-style-apple-pay-button.html [ Skip ]
+# -webkit-named-image(apple-pay-logo-*) draws the PayButtonLogo PDFs from <system>/Library/Frameworks/PassKit.framework
+# (ApplePayLogoSystemImage.mm), and 10.9 has no PassKit.framework there, so the image draws nothing and each
+# -mismatch test matches its blank reference.
 fast/css/webkit-named-image/apple-pay-logo-black [ Skip ]
 fast/css/webkit-named-image/apple-pay-logo-white [ Skip ]
 

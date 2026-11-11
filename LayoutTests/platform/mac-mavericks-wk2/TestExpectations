@@ -254,14 +254,6 @@ http/wpt/mediasession/gpuProcessCrash-voiceDetection.html [ Skip ]
 # together with Internals.idl's requestTextRecognition compile out. No test here can install an overlay.
 fast/images/text-recognition [ Skip ]
 
-# Apple Pay: ENABLE_APPLE_PAY and ENABLE_PAYMENT_REQUEST are 0, and 10.9's PassKit carries only the
-# PKPass and PKPassView classes -- none of PKPaymentRequest, PKPayment, PKPaymentMethod, PKContact or
-# PKPaymentAuthorizationViewController. PaymentRequest.idl, ApplePaySession.idl and Internals'
-# mockPaymentCoordinator are all conditional on those flags, so every test here throws at its first
-# reference. Upstream skips both directories generically and re-enables them in platform/mac-wk2.
-http/tests/paymentrequest [ Skip ]
-http/tests/ssl/applepay [ Skip ]
-
 # Picture-in-Picture is off in this port: cmakeconfig.h carries ENABLE_PICTURE_IN_PICTURE_API 0 and
 # ENABLE_VIDEO_PRESENTATION_MODE 0, which the PiP API needs to compile. requestPictureInPicture,
 # webkitSetPresentationMode, exitPictureInPicture, the autoPictureInPicture and disablePictureInPicture

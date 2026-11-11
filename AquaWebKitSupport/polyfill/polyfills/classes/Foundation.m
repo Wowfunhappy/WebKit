@@ -752,3 +752,266 @@ WK_PRIV_CLASS(NSItemProvider) @interface NSItemProvider : NSObject <NSPasteboard
 
 @end
 WK_PRIV_ALIAS(NSItemProvider);
+
+// NSPersonNameComponents (10.11+): the parts of a person's name, a pure value object, and its phonetic
+// spelling as a second set of components. NSPersonNameComponentsFormatter writes them out in a script's
+// own order: given name first, or family name first without spaces for Han, Hangul and Kana names.
+WK_PRIV_CLASS(NSPersonNameComponents) @interface NSPersonNameComponents : NSObject <NSCopying, NSSecureCoding> {
+    NSString *_namePrefix;
+    NSString *_givenName;
+    NSString *_middleName;
+    NSString *_familyName;
+    NSString *_nameSuffix;
+    NSString *_nickname;
+    NSPersonNameComponents *_phoneticRepresentation;
+}
+@property (copy) NSString *namePrefix;
+@property (copy) NSString *givenName;
+@property (copy) NSString *middleName;
+@property (copy) NSString *familyName;
+@property (copy) NSString *nameSuffix;
+@property (copy) NSString *nickname;
+@property (copy) NSPersonNameComponents *phoneticRepresentation;
+@end
+
+@implementation NSPersonNameComponents
+
+@synthesize namePrefix = _namePrefix;
+@synthesize givenName = _givenName;
+@synthesize middleName = _middleName;
+@synthesize familyName = _familyName;
+@synthesize nameSuffix = _nameSuffix;
+@synthesize nickname = _nickname;
+@synthesize phoneticRepresentation = _phoneticRepresentation;
+
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
+- (void)dealloc
+{
+    [_namePrefix release];
+    [_givenName release];
+    [_middleName release];
+    [_familyName release];
+    [_nameSuffix release];
+    [_nickname release];
+    [_phoneticRepresentation release];
+    [super dealloc];
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    NSPersonNameComponents *copy = [[[self class] allocWithZone:zone] init];
+    copy.namePrefix = _namePrefix;
+    copy.givenName = _givenName;
+    copy.middleName = _middleName;
+    copy.familyName = _familyName;
+    copy.nameSuffix = _nameSuffix;
+    copy.nickname = _nickname;
+    copy.phoneticRepresentation = _phoneticRepresentation;
+    return copy;
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    if (!(self = [self init]))
+        return nil;
+    Class string = [NSString class];
+    _namePrefix = [[coder decodeObjectOfClass:string forKey:@"NS.namePrefix"] copy];
+    _givenName = [[coder decodeObjectOfClass:string forKey:@"NS.givenName"] copy];
+    _middleName = [[coder decodeObjectOfClass:string forKey:@"NS.middleName"] copy];
+    _familyName = [[coder decodeObjectOfClass:string forKey:@"NS.familyName"] copy];
+    _nameSuffix = [[coder decodeObjectOfClass:string forKey:@"NS.nameSuffix"] copy];
+    _nickname = [[coder decodeObjectOfClass:string forKey:@"NS.nickname"] copy];
+    _phoneticRepresentation = [[coder decodeObjectOfClass:[NSPersonNameComponents class] forKey:@"NS.phoneticRepresentation"] copy];
+    return self;
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [coder encodeObject:_namePrefix forKey:@"NS.namePrefix"];
+    [coder encodeObject:_givenName forKey:@"NS.givenName"];
+    [coder encodeObject:_middleName forKey:@"NS.middleName"];
+    [coder encodeObject:_familyName forKey:@"NS.familyName"];
+    [coder encodeObject:_nameSuffix forKey:@"NS.nameSuffix"];
+    [coder encodeObject:_nickname forKey:@"NS.nickname"];
+    [coder encodeObject:_phoneticRepresentation forKey:@"NS.phoneticRepresentation"];
+}
+
+static BOOL wkPersonNameStringsEqual(NSString *a, NSString *b)
+{
+    return a == b || [a isEqualToString:b];
+}
+
+- (BOOL)isEqual:(id)other
+{
+    if (![other isKindOfClass:[NSPersonNameComponents class]])
+        return NO;
+    NSPersonNameComponents *name = other;
+    return wkPersonNameStringsEqual(_namePrefix, name->_namePrefix) && wkPersonNameStringsEqual(_givenName, name->_givenName)
+        && wkPersonNameStringsEqual(_middleName, name->_middleName) && wkPersonNameStringsEqual(_familyName, name->_familyName)
+        && wkPersonNameStringsEqual(_nameSuffix, name->_nameSuffix) && wkPersonNameStringsEqual(_nickname, name->_nickname)
+        && (_phoneticRepresentation == name->_phoneticRepresentation || [_phoneticRepresentation isEqual:name->_phoneticRepresentation]);
+}
+
+- (NSUInteger)hash
+{
+    return [_givenName hash] ^ [_familyName hash];
+}
+
+@end
+WK_PRIV_ALIAS(NSPersonNameComponents);
+
+typedef NS_ENUM(NSInteger, NSPersonNameComponentsFormatterStyle) {
+    NSPersonNameComponentsFormatterStyleDefault = 0,
+    NSPersonNameComponentsFormatterStyleShort,
+    NSPersonNameComponentsFormatterStyleMedium,
+    NSPersonNameComponentsFormatterStyleLong,
+    NSPersonNameComponentsFormatterStyleAbbreviated,
+};
+
+typedef NS_OPTIONS(NSUInteger, NSPersonNameComponentsFormatterOptions) {
+    NSPersonNameComponentsFormatterPhonetic = (1UL << 1),
+};
+
+WK_PRIV_CLASS(NSPersonNameComponentsFormatter) @interface NSPersonNameComponentsFormatter : NSFormatter {
+    NSPersonNameComponentsFormatterStyle _style;
+    BOOL _phonetic;
+}
++ (NSString *)localizedStringFromPersonNameComponents:(NSPersonNameComponents *)components style:(NSPersonNameComponentsFormatterStyle)nameFormatStyle options:(NSPersonNameComponentsFormatterOptions)nameOptions;
+- (NSString *)stringFromPersonNameComponents:(NSPersonNameComponents *)components;
+- (NSAttributedString *)annotatedStringFromPersonNameComponents:(NSPersonNameComponents *)components;
+- (NSPersonNameComponents *)personNameComponentsFromString:(NSString *)string;
+@property NSPersonNameComponentsFormatterStyle style;
+@property (getter=isPhonetic) BOOL phonetic;
+@end
+
+// A name written in Han, Hangul or Kana puts the family name first and joins the parts without spaces.
+static BOOL wkPersonNameIsEastAsian(NSString *string)
+{
+    NSUInteger length = [string length];
+    for (NSUInteger i = 0; i < length; ++i) {
+        unichar c = [string characterAtIndex:i];
+        if ((c >= 0x1100 && c <= 0x11FF) || (c >= 0x3040 && c <= 0x30FF) || (c >= 0x3130 && c <= 0x318F)
+            || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7AF)
+            || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF66 && c <= 0xFF9F))
+            return YES;
+    }
+    return NO;
+}
+
+static NSString *wkPersonNameInitial(NSString *string)
+{
+    if (![string length])
+        return nil;
+    NSRange first = [string rangeOfComposedCharacterSequenceAtIndex:0];
+    return [[string substringWithRange:first] uppercaseString];
+}
+
+@implementation NSPersonNameComponentsFormatter
+
+@synthesize style = _style;
+@synthesize phonetic = _phonetic;
+
++ (NSString *)localizedStringFromPersonNameComponents:(NSPersonNameComponents *)components style:(NSPersonNameComponentsFormatterStyle)nameFormatStyle options:(NSPersonNameComponentsFormatterOptions)nameOptions
+{
+    NSPersonNameComponentsFormatter *formatter = [[[self alloc] init] autorelease];
+    formatter.style = nameFormatStyle;
+    formatter.phonetic = !!(nameOptions & NSPersonNameComponentsFormatterPhonetic);
+    return [formatter stringFromPersonNameComponents:components];
+}
+
+- (NSString *)stringFromPersonNameComponents:(NSPersonNameComponents *)components
+{
+    NSPersonNameComponents *name = _phonetic ? components.phoneticRepresentation : components;
+    if (!name)
+        return @"";
+
+    BOOL eastAsian = wkPersonNameIsEastAsian([NSString stringWithFormat:@"%@%@", name.familyName ?: @"", name.givenName ?: @""]);
+    NSMutableArray *parts = [NSMutableArray array];
+    void (^add)(NSString *) = ^(NSString *part) {
+        if ([part length])
+            [parts addObject:part];
+    };
+
+    switch (_style) {
+    case NSPersonNameComponentsFormatterStyleShort:
+        add([name.nickname length] ? name.nickname : (eastAsian ? name.familyName : name.givenName));
+        if (![parts count])
+            add(eastAsian ? name.givenName : name.familyName);
+        break;
+    case NSPersonNameComponentsFormatterStyleAbbreviated:
+        if (eastAsian) {
+            add(wkPersonNameInitial(name.familyName));
+            return [parts count] ? parts[0] : @"";
+        }
+        add(wkPersonNameInitial(name.givenName));
+        add(wkPersonNameInitial(name.familyName));
+        return [parts componentsJoinedByString:@""];
+    case NSPersonNameComponentsFormatterStyleLong:
+        add(name.namePrefix);
+        if (eastAsian) {
+            add(name.familyName);
+            add(name.givenName);
+        } else {
+            add(name.givenName);
+            add(name.middleName);
+            add(name.familyName);
+        }
+        add(name.nameSuffix);
+        break;
+    case NSPersonNameComponentsFormatterStyleDefault:
+    case NSPersonNameComponentsFormatterStyleMedium:
+        if (eastAsian) {
+            add(name.familyName);
+            add(name.givenName);
+        } else {
+            add(name.givenName);
+            add(name.familyName);
+        }
+        break;
+    }
+    return [parts componentsJoinedByString:eastAsian ? @"" : @" "];
+}
+
+- (NSString *)stringForObjectValue:(id)object
+{
+    return [object isKindOfClass:[NSPersonNameComponents class]] ? [self stringFromPersonNameComponents:object] : nil;
+}
+
+- (NSAttributedString *)annotatedStringFromPersonNameComponents:(NSPersonNameComponents *)components
+{
+    return [[[NSAttributedString alloc] initWithString:[self stringFromPersonNameComponents:components]] autorelease];
+}
+
+// Western order: the last word is the family name and the rest the given name.
+- (NSPersonNameComponents *)personNameComponentsFromString:(NSString *)string
+{
+    NSArray *words = [[string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    words = [words filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    if (![words count])
+        return nil;
+    NSPersonNameComponents *components = [[[NSPersonNameComponents alloc] init] autorelease];
+    if ([words count] == 1)
+        components.givenName = words[0];
+    else {
+        components.givenName = [[words subarrayWithRange:NSMakeRange(0, [words count] - 1)] componentsJoinedByString:@" "];
+        components.familyName = [words lastObject];
+    }
+    return components;
+}
+
+- (BOOL)getObjectValue:(out id *)object forString:(NSString *)string errorDescription:(out NSString **)error
+{
+    NSPersonNameComponents *components = [self personNameComponentsFromString:string];
+    if (object)
+        *object = components;
+    if (!components && error)
+        *error = @"No name could be read from the string.";
+    return !!components;
+}
+
+@end
+WK_PRIV_ALIAS(NSPersonNameComponentsFormatter);

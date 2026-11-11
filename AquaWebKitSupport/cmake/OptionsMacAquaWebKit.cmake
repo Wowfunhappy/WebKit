@@ -127,7 +127,6 @@ unset(_part)
 # this port's values for the features PlatformEnableCocoa.h decides with a
 # `#if !defined(ENABLE_X)` block. A command-line definition preempts that block, so the port states
 # its answer here rather than editing the shared header.
-#   APPLE_PAY_AMS_UI              needs ENABLE(PAYMENT_REQUEST), which follows Apple Pay OFF.
 #   IMAGE_ANALYSIS_ENHANCEMENTS   builds on VisionKit's VKCImageAnalysis (macOS 13+).
 #   LEGACY_PDFKIT_PLUGIN          the inline PDF plugin needs PDFKit SPI 10.9 lacks; PDFs download.
 #   REVEAL                        Reveal.framework is macOS 10.13+; Look Up goes through Lookup.framework.
@@ -147,7 +146,6 @@ unset(_part)
 #                                 in-process. Child processes read preferences through cfprefsd.
 add_compile_definitions(
     ENABLE_CFPREFS_DIRECT_MODE=0
-    ENABLE_APPLE_PAY_AMS_UI=0
     ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
     ENABLE_LEGACY_PDFKIT_PLUGIN=0
     ENABLE_REVEAL=0
@@ -169,23 +167,6 @@ add_compile_definitions(ENABLE_COOKIE_STORE_API_BY_DEFAULT=1)
 # The source-list filter macro used by the WebCore/WebKit platform overlays.
 include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/AquaWebKitSourceLists.cmake)
 
-# OFF -- Apple Pay does not exist on 10.9. PassKit.framework here is the Passbook
-# pass viewer (PKPass is present; PKPaymentRequest, PKPayment, PKPaymentMethod, PKContact and
-# PKPaymentAuthorizationViewController are all absent -- verified with nm against the 10.9 binary).
-# Apple Pay on the Mac arrived in 10.12. Left OFF rather than stubbed: exposing window.ApplePaySession
-# to content would advertise a payment method that can never authorize, which breaks checkout flows
-# that feature-detect it -- a wrong answer, not an inert one.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
-# Apple Pay subfeatures require the parent implementation.
-foreach (_apple_pay_feature IN ITEMS
-    AUTOMATIC_RELOAD_LINE_ITEM AUTOMATIC_RELOAD_PAYMENTS COUPON_CODE
-    DEFERRED_LINE_ITEM DEFERRED_PAYMENTS DELEGATED_REQUEST DISBURSEMENTS INSTALLMENTS
-    LATER LATER_AVAILABILITY MERCHANT_CATEGORY_CODE MULTI_MERCHANT_PAYMENTS
-    PAYMENT_ORDER_DETAILS RECURRING_LINE_ITEM RECURRING_PAYMENTS SELECTED_SHIPPING_METHOD
-    SHIPPING_CONTACT_EDITING_MODE SHIPPING_METHOD_DATE_COMPONENTS_RANGE)
-    WEBKIT_OPTION_DEPEND(ENABLE_APPLE_PAY_${_apple_pay_feature} ENABLE_APPLE_PAY)
-endforeach ()
-unset(_apple_pay_feature)
 # ON. ImageBackingStore tags every frame WebCore's own decoders produce sRGB, so a JPEG or PNG that
 # carries an ICC profile is shown in its own colours only if the decoder transforms the pixels first,
 # and USE(LCMS) is what makes JPEGImageDecoder and PNGImageDecoder do that. lcms2 comes from
@@ -299,8 +280,11 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
 # session sources are in no source list this port builds; the one place that assumed USE(GLIB) implied
 # the GLib manager is gated in Internals.cpp.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_COORDINATOR PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_PLAYLIST PRIVATE OFF)
+# ON, as PlatformEnableCocoa.h has both for Mac; the coordinator's track changes use the playlist's
+# trackIdentifier. With HAVE(GROUP_ACTIVITIES) off no SharePlay session ever attaches, so
+# navigator.mediaSession.coordinator stays "closed", as on a Mac outside a SharePlay call.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_COORDINATOR PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_PLAYLIST PRIVATE ON)
 # Right-click menu on <video>/<audio>. Complements the restored classic Aqua media controls (#68).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_CONTROLS_CONTEXT_MENUS PRIVATE ON)
 # DeviceOrientation/DeviceMotion. A Mac has no sensors, so the events simply never fire — which is
@@ -328,10 +312,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEMORY_SAMPLER PRIVATE ON)
 # ON — enable OffscreenCanvas (incl. in workers) for modern sites; backed by the ANGLE/CG canvas path.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS_IN_WORKERS PRIVATE ON)
-# OFF -- the Payment Request API is backed on Cocoa by the same Apple Pay machinery
-# 10.9 lacks (see ENABLE_APPLE_PAY above); with no payment handler it would expose a PaymentRequest that
-# can only ever reject.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PAYMENT_REQUEST PRIVATE OFF)
 # OFF -- a product decision, not an availability gap: 10.9 PDFKit is present and
 # complete (PDFDocument/PDFPage/PDFAnnotation/PDFSelection/PDFThumbnailView all verified present).
 # Safari 7 hands PDFs to its own viewer, and inlining WebKit's instead regresses that; see

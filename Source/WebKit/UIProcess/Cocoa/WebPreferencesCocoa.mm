@@ -139,12 +139,17 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
-        // AQUAWEBKIT: Safari receives the settings modern Safari sets through API Safari 7's
-        // WKPreferences surface cannot express, as overridable defaults: HTTPS-first, and web content
-        // limited to the fonts the system provides.
+        // AQUAWEBKIT: Safari receives the settings modern Safari has and Safari 7 cannot express, as
+        // overridable defaults: HTTPS-first, web content limited to the fonts the system provides,
+        // Apple Pay (set through WKWebViewConfiguration's _applePayEnabled), and the media session
+        // coordinator and playlist (enabled by Safari's SharePlay entitlement, which Safari 7's
+        // signature predates).
         if (WTF::MacApplication::isSafari()) {
             registerDefaultBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
             registerDefaultBoolValueForKey(WebPreferencesKey::shouldAllowUserInstalledFontsKey(), false);
+            registerDefaultBoolValueForKey(WebPreferencesKey::applePayEnabledKey(), true);
+            registerDefaultBoolValueForKey(WebPreferencesKey::mediaSessionCoordinatorEnabledKey(), true);
+            registerDefaultBoolValueForKey(WebPreferencesKey::mediaSessionPlaylistEnabledKey(), true);
         }
 
         // AQUAWEBKIT: the legacy WKPreferences surface has no requestIdleCallback key, so the store

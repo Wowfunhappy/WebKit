@@ -2163,7 +2163,6 @@ TEST(IPCSerialization, NSURLCredentialAttributesToID)
 
 #endif // HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
 
-#if USE(PASSKIT) // AQUAWEBKIT: PassKit payment fixtures.
 @interface PKPaymentMerchantSession ()
 - (instancetype)initWithMerchantIdentifier:(NSString *)merchantIdentifier
                  merchantSessionIdentifier:(NSString *)merchantSessionIdentifier
@@ -2203,7 +2202,6 @@ TEST(IPCSerialization, NSURLCredentialAttributesToID)
                                   signature:(NSData *)signature;
 #endif
 @end
-#endif // AQUAWEBKIT: PassKit payment fixtures.
 
 TEST(IPCSerialization, DataDetectors)
 {
@@ -2223,7 +2221,6 @@ TEST(IPCSerialization, DataDetectors)
     runTestNS({ actionContext.get() });
 }
 
-#if USE(PASSKIT) // AQUAWEBKIT: PassKit secure-coding round trips.
 TEST(IPCSerialization, SecureCoding)
 {
     // PKPaymentMerchantSession
@@ -2364,8 +2361,6 @@ TEST(IPCSerialization, SecureCoding)
 
     runTestNS({ payment.get() });
 }
-
-#endif // AQUAWEBKIT: PassKit secure-coding round trips.
 
 #if USE(PASSKIT) && HAVE(WK_SECURE_CODING_PKSHIPPINGMETHOD)
 TEST(IPCSerialization, PKShippingMethod)

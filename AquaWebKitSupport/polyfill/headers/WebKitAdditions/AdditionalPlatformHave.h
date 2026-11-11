@@ -37,6 +37,9 @@
 // exports no such class.
 #define HAVE_SCENEKIT 0
 
+// GroupActivities.framework (SharePlay) is macOS 12+.
+#define HAVE_GROUP_ACTIVITIES 0
+
 // TranslationUIServices.framework is macOS 12+.
 #define HAVE_TRANSLATION_UI_SERVICES 0
 
@@ -119,7 +122,6 @@
 #define HAVE_NS_EMOJI_IMAGE_STRIKE_PROVENANCE 0
 #define HAVE_NS_TEXT_CHECKING_TYPE_MATH_COMPLETION 0
 #define HAVE_NWSETTINGS_UNIFIED_HTTP 0
-#define HAVE_PASSKIT_MERCHANT_CATEGORY_CODE 0
 #define HAVE_PDFSELECTION_HTMLDATA_RTFDATA 0
 #define HAVE_REDESIGNED_TEXT_CURSOR 0
 #define HAVE_STRICT_DECODABLE_CNCONTACT 0
@@ -136,7 +138,7 @@
 // The compositor's threaded animations run on CAPresentationModifier (macOS 15). Material hosting
 // (CoreMaterial.framework), NSTextSelectionRect, inline predictions, UserNotifications.framework,
 // CGStyle colour-matrix and blur styles, continuous rounded rects and CGImage HDR gain maps are
-// later system additions as well, and PassKit here has no disbursement classes.
+// later system additions as well.
 #define HAVE_CORE_MATERIAL 0
 #define HAVE_NSTEXTPLACEHOLDER_RECTS 0
 #define HAVE_INLINE_PREDICTIONS 0
@@ -144,7 +146,6 @@
 #define HAVE_CGSTYLE_COLORMATRIX_BLUR 0
 #define HAVE_CG_PATH_CONTINUOUS_ROUNDED_RECT 0
 #define HAVE_SUPPORT_HDR_DISPLAY 0
-#define HAVE_PASSKIT_DISBURSEMENTS 0
 
 // CoreGraphics draws a CSS drop-shadow() as a CGStyle shadow (CGStyleCreateShadow2 + CGContextSetStyle,
 // both exported by 10.9's CoreGraphics and already drawing every box-shadow and text-shadow here), so

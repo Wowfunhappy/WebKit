@@ -667,10 +667,7 @@
 #define HAVE_MEDIA_USAGE_FRAMEWORK 1
 #endif
 
-// AQUAWEBKIT: PassKit.framework (and with it Apple Pay) is macOS 10.12+, so the PassKit-dependent
-// Apple Pay sub-features are off at this deployment target along with the base Apple Pay types.
-// #if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
-#if (PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)))
+#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
 #define HAVE_PASSKIT_FRAMEWORK 1
 #endif
 

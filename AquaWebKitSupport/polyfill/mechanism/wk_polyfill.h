@@ -232,7 +232,7 @@ struct wk_polyfill_class_entry {
 // Emitted into its own section rather than __wk_pfmap: the classes live in libpolyfill_classes.dylib
 // and WebCore, not necessarily the image whose libpolyfill.a copy runs the override, so unlike a
 // function entry this one has to be found by scanning loaded images (see
-// lookupPolyfillClass). Keeping them in separate sections keeps that scan off the hot registry.
+// lookupPolyfillClassEntry). Keeping them in separate sections keeps that scan off the hot registry.
 #define WK_POLYFILL_CLASS(PROVIDER, NAME)                                     \
     extern char OBJC_CLASS_$_WKPolyfillPriv_##NAME;                        \
     __attribute__((used, section("__DATA,__wk_clsmap")))                      \

@@ -99,10 +99,9 @@
 #define USE_APPKIT 1
 #endif
 
-// AQUAWEBKIT: PassKit 10.12+
-// #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
-// #define USE_PASSKIT 1
-// #endif
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
+#define USE_PASSKIT 1
+#endif
 
 #if PLATFORM(MAC)
 #define USE_PLUGIN_HOST_PROCESS 1

@@ -156,8 +156,8 @@ endif ()
 # list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
 
 # The platform defines the WebCore generators see, matching this build's C++ configuration: upstream's list also
-# names ENABLE_APPLE_PAY_NEW_BUTTON_TYPES, HAVE_CORE_MATERIAL and HAVE_MATERIAL_HOSTING, which are off here.
-set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA")
+# names HAVE_CORE_MATERIAL and HAVE_MATERIAL_HOSTING, which are off here.
+set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
 
 # Apple's DerivedSources.make preprocesses every WebCore generator input with the platform defines as well
 # as the feature defines; html.css's PLATFORM(COCOA) rules read them.
@@ -322,7 +322,6 @@ set(AQUAWEBKIT_WITHHELD_COCOA_SOURCES
     # conversions would have to agree.
     # AudioFileReaderGStreamer.cpp defines the same createBusFromInMemoryAudioFile.
     "platform/audio/cocoa/AudioFileReaderCocoa.mm @nonARC"
-    "JSApplePayDisbursementRequest.cpp"
     "crypto/cocoa/CommonCryptoDERUtilities.cpp"
     "crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp"
     "crypto/cocoa/CryptoAlgorithmAESCFBCocoa.cpp"

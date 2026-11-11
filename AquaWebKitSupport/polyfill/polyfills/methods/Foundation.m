@@ -4330,3 +4330,97 @@ WK_POLYFILL_REPLACES("CFNetwork", wk_CFCachedURLResponseRef, CFURLCacheCopyRespo
     }
     return entry;
 }
+
+// NSJSONWritingSortedKeys (10.13) writes every dictionary's keys in sorted order. 10.9's writer ignores
+// the option but enumerates a dictionary through its -keyEnumerator, so the object handed to it is a
+// copy whose dictionaries enumerate their keys sorted, compared as Foundation orders them for this
+// option: numerically, case-insensitively, with a forced ordering, in the system locale. A dictionary
+// with a key that is not a string is handed over as it is, for the writer to reject.
+@interface WKSortedKeysJSONDictionary : NSDictionary {
+    NSDictionary *_dictionary;
+    NSArray *_sortedKeys;
+}
+- (instancetype)initWithDictionary:(NSDictionary *)dictionary sortedKeys:(NSArray *)sortedKeys;
+@end
+
+@implementation WKSortedKeysJSONDictionary
+
+- (instancetype)initWithDictionary:(NSDictionary *)dictionary sortedKeys:(NSArray *)sortedKeys
+{
+    if (!(self = [super init]))
+        return nil;
+    _dictionary = [dictionary retain];
+    _sortedKeys = [sortedKeys retain];
+    return self;
+}
+
+- (void)dealloc
+{
+    [_dictionary release];
+    [_sortedKeys release];
+    [super dealloc];
+}
+
+- (NSUInteger)count
+{
+    return [_dictionary count];
+}
+
+- (id)objectForKey:(id)key
+{
+    return [_dictionary objectForKey:key];
+}
+
+- (NSEnumerator *)keyEnumerator
+{
+    return [_sortedKeys objectEnumerator];
+}
+
+@end
+
+static id wk_JSONObjectWithSortedKeys(id object)
+{
+    if ([object isKindOfClass:[NSArray class]]) {
+        NSMutableArray *array = [NSMutableArray arrayWithCapacity:[object count]];
+        for (id element in object)
+            [array addObject:wk_JSONObjectWithSortedKeys(element)];
+        return array;
+    }
+    if (![object isKindOfClass:[NSDictionary class]])
+        return object;
+
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:[object count]];
+    for (id key in object) {
+        if (![key isKindOfClass:[NSString class]])
+            return object;
+        [dictionary setObject:wk_JSONObjectWithSortedKeys([object objectForKey:key]) forKey:key];
+    }
+    NSLocale *locale = [NSLocale systemLocale];
+    NSArray *sortedKeys = [[dictionary allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [a compare:b options:NSNumericSearch | NSCaseInsensitiveSearch | NSForcedOrderingSearch range:NSMakeRange(0, [a length]) locale:locale];
+    }];
+    return [[[WKSortedKeysJSONDictionary alloc] initWithDictionary:dictionary sortedKeys:sortedKeys] autorelease];
+}
+
+// The SDK's name for the option bit WebKit passes; naming it at this deployment target is what the
+// availability warning describes.
+static const NSJSONWritingOptions wk_JSONWritingSortedKeys = (1UL << 1);
+
+WK_POLYFILL_REPLACE_METHODS(NSJSONSerialization)
++ (NSData *)dataWithJSONObject:(id)object options:(NSJSONWritingOptions)options error:(NSError **)error
+{
+    if (options & wk_JSONWritingSortedKeys) {
+        object = wk_JSONObjectWithSortedKeys(object);
+        options &= ~wk_JSONWritingSortedKeys;
+    }
+    return WK_ORIGINAL_METHOD(NSData *, (id, NSJSONWritingOptions, NSError **), object, options, error);
+}
++ (NSInteger)writeJSONObject:(id)object toStream:(NSOutputStream *)stream options:(NSJSONWritingOptions)options error:(NSError **)error
+{
+    if (options & wk_JSONWritingSortedKeys) {
+        object = wk_JSONObjectWithSortedKeys(object);
+        options &= ~wk_JSONWritingSortedKeys;
+    }
+    return WK_ORIGINAL_METHOD(NSInteger, (id, NSOutputStream *, NSJSONWritingOptions, NSError **), object, stream, options, error);
+}
+@end

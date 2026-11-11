@@ -16,7 +16,7 @@
 //  3. Answer objc_getClass() for the absent classes the layer defines, which SoftLinking.h
 //     resolves by name and would otherwise never see, since each stub is registered under a private
 //     runtime name to keep it out of the host app's way. Driven by the separate __DATA,__wk_clsmap
-//     registry, because those classes may live in a different image -- see lookupPolyfillClass.
+//     registry, because those classes may live in a different image -- see lookupPolyfillClassEntry.
 //
 // Scope: this file ships in libpolyfill.a, which is linked only into WebKit's own binaries, so the
 // overrides apply to WebKit's lookups alone. A host app loading WebKit is unaffected. It also ships in
@@ -25,6 +25,7 @@
 #include "wk_polyfill.h"
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
@@ -33,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #if __LP64__
 typedef struct mach_header_64 wk_mach_header;
@@ -91,12 +93,16 @@ static void resolveSystemDlsym(void)
 // HAS the framework but not one particular SPI reports, and the case upstream's canLoad_ probes are
 // written to degrade through.
 //
-// The token is a table slot rather than the registry string, because the same provider name reaches
-// the registry as a separate string literal from each image that carries polyfills; interning gives
-// one address per provider for the whole process, which is what handleCanSeeProvider compares.
-#define WK_MAX_ABSENT_PROVIDERS 16
-static struct { char path[PATH_MAX]; } absentProviders[WK_MAX_ABSENT_PROVIDERS];
-static int absentProviderCount;
+// The token is a node of an interned list rather than the registry string, because the same provider
+// name reaches the registry as a separate string literal from each image that carries polyfills;
+// interning gives one address per provider, which is what handleCanSeeProvider compares. The list only
+// grows: a node is published by a release store of the head after its path is written, so
+// wk_polyfill_is_absent_provider_token reads it without the lock.
+struct wk_absent_provider {
+    struct wk_absent_provider *next;
+    char path[PATH_MAX];
+};
+static struct wk_absent_provider *absentProviders;
 static pthread_mutex_t absentProviderLock = PTHREAD_MUTEX_INITIALIZER;
 
 // The canonical framework path a provider string names. A registry provider is spelled either as a
@@ -111,7 +117,7 @@ static void providerPath(const char *provider, char *out, size_t outSize)
 }
 
 // The class registry lives in another image and is scanned through the clsmap sections; see
-// classProviderPathIsRegistered below lookupPolyfillClass.
+// classProviderPathIsRegistered below lookupPolyfillClassEntry.
 static int classProviderPathIsRegistered(const char *frameworkPath);
 
 static int providerPathIsRegistered(const char *frameworkPath)
@@ -129,22 +135,22 @@ static int providerPathIsRegistered(const char *frameworkPath)
 
 void *wk_polyfill_absent_provider_token(const char *frameworkPath)
 {
-    if (!frameworkPath || !*frameworkPath || strlen(frameworkPath) >= sizeof absentProviders[0].path)
+    if (!frameworkPath || !*frameworkPath || strlen(frameworkPath) >= sizeof absentProviders->path)
         return NULL;
     if (!providerPathIsRegistered(frameworkPath))
         return NULL;   // nothing here vends this framework's symbols, so it has no handle to offer
 
     pthread_mutex_lock(&absentProviderLock);
-    void *token = NULL;
-    for (int i = 0; i < absentProviderCount; i++) {
-        if (!strcmp(absentProviders[i].path, frameworkPath)) {
-            token = &absentProviders[i];
-            break;
-        }
-    }
-    if (!token && absentProviderCount < WK_MAX_ABSENT_PROVIDERS) {
-        snprintf(absentProviders[absentProviderCount].path, sizeof absentProviders[0].path, "%s", frameworkPath);
-        token = &absentProviders[absentProviderCount++];
+    struct wk_absent_provider *token = absentProviders;
+    while (token && strcmp(token->path, frameworkPath))
+        token = token->next;
+    if (!token) {
+        token = calloc(1, sizeof *token);
+        if (!token)
+            abort();
+        snprintf(token->path, sizeof token->path, "%s", frameworkPath);
+        token->next = absentProviders;
+        __atomic_store_n(&absentProviders, token, __ATOMIC_RELEASE);
     }
     pthread_mutex_unlock(&absentProviderLock);
     return token;
@@ -152,8 +158,13 @@ void *wk_polyfill_absent_provider_token(const char *frameworkPath)
 
 int wk_polyfill_is_absent_provider_token(void *handle)
 {
-    return handle >= (void *)&absentProviders[0]
-        && handle < (void *)&absentProviders[WK_MAX_ABSENT_PROVIDERS];
+    if (!handle)
+        return 0;
+    for (struct wk_absent_provider *token = __atomic_load_n(&absentProviders, __ATOMIC_ACQUIRE); token; token = token->next) {
+        if (token == handle)
+            return 1;
+    }
+    return 0;
 }
 
 static void *providerHandle(const char *provider, int mayLoad)
@@ -332,10 +343,10 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 // The classes live in libpolyfill_classes.dylib and WebCore, not necessarily in this image, so their
 // registry cannot be read out of our own __wk_pfmap the way wk_polyfill_init reads the
 // function/constant one. The __wk_clsmap sections are found as images load (below) rather than by
-// walking every loaded image on each miss: this path runs for EVERY objc_getClass the system cannot
-// answer, and a per-miss walk of a few hundred images is the single largest cost of a polyfill block
-// waiting for a class to load — each of its per-image-load retries is such a miss, so every retry
-// would walk all images, ~21 ms of a Safari launch.
+// walking every loaded image on each lookup: the override scans them for EVERY objc_getClass a WebKit
+// binary makes, and a walk of a few hundred images per call is the single largest cost of a polyfill
+// block waiting for a class to load — each of its per-image-load retries is such a call, so every
+// retry would walk all images, ~21 ms of a Safari launch.
 //
 // An image carrying stubs can arrive at any time (libpolyfill_classes.dylib is loaded with the
 // framework that pulled it in, and the frameworks load in whatever order the host app causes), which
@@ -379,21 +390,36 @@ static void noteClassStubImage(const struct mach_header *mh, intptr_t slide)
     __atomic_store_n(&clsmapSectionCount, n + 1, __ATOMIC_RELEASE);
 }
 
-static void *lookupPolyfillClass(const char *name)
+static const struct wk_polyfill_class_entry *lookupPolyfillClassEntry(const char *name)
 {
     int n = __atomic_load_n(&clsmapSectionCount, __ATOMIC_ACQUIRE);
     for (int i = 0; i < n; i++) {
         const struct wk_polyfill_class_entry *classEntries = clsmapSections[i].entries;
         size_t count = clsmapSections[i].count;
         for (size_t j = 0; j < count; j++) {
-            if (strcmp(classEntries[j].name, name))
-                continue;
-            if (classEntries[j].cls)
-                return classEntries[j].cls;
-            return classEntries[j].resolve ? classEntries[j].resolve() : NULL;
+            if (!strcmp(classEntries[j].name, name))
+                return &classEntries[j];
         }
     }
     return NULL;
+}
+
+static void *polyfillClassForEntry(const struct wk_polyfill_class_entry *entry)
+{
+    if (entry->cls)
+        return entry->cls;
+    return entry->resolve ? entry->resolve() : NULL;
+}
+
+// Whether the framework that owns a class stub is missing from this system altogether.
+static int classProviderIsAbsent(const struct wk_polyfill_class_entry *entry)
+{
+    if (!entry->provider)
+        return 0;
+    char path[PATH_MAX];
+    providerPath(entry->provider, path, sizeof path);
+    struct stat info;
+    return stat(path, &info) && errno == ENOENT;
 }
 
 // A provider whose only registered symbols are class stubs vends symbols like any other, so it has a
@@ -425,15 +451,23 @@ static int classProviderPathIsRegistered(const char *frameworkPath)
 // ignoring a stub that is loaded and able to answer, which is the same failure the dlsym override
 // exists to prevent for constants and functions.
 //
-// The system is asked first, so this can only ever answer where 10.9 has no such class, and only for
-// a name WK_POLYFILL_CLASS explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
-// not this one.
+// It answers only for a name WK_POLYFILL_CLASS explicitly registered. The system is asked first, and a
+// class the system has wins, except where the stub's framework is absent from this system: a
+// same-named class registered then belongs to another framework and has another API. 10.9's
+// AddressBook carries private CNContact, CNMutableContact, CNLabeledValue, CNPostalAddress and
+// CNMutablePostalAddress classes, which are not Contacts.framework's. A host app is unaffected: it
+// calls libobjc's objc_getClass, not this one.
 WK_POLYFILL_REPLACES("/usr/lib/libobjc.A.dylib", Class, objc_getClass, (const char *name))
 {
     Class systemAnswer = WK_ORIGINAL(objc_getClass)(name);
-    if (systemAnswer || !name)
+    if (!name)
         return systemAnswer;
-    return (Class)lookupPolyfillClass(name);
+    const struct wk_polyfill_class_entry *entry = lookupPolyfillClassEntry(name);
+    if (!entry)
+        return systemAnswer;
+    if (systemAnswer && !classProviderIsAbsent(entry))
+        return systemAnswer;
+    return (Class)polyfillClassForEntry(entry);
 }
 
 static void report(void);
