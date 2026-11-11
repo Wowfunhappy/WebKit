@@ -1714,10 +1714,6 @@ public:
 
     void setHasStyleWithViewportUnits() { m_hasStyleWithViewportUnits = true; }
     bool hasStyleWithViewportUnits() const { return m_hasStyleWithViewportUnits; }
-
-    // AQUAWEBKIT: whether any element has had a blend mode GraphicsLayer::supportsBlendMode rejects; sticky.
-    void setHasBlendModeLayersCannotComposite() { m_hasBlendModeLayersCannotComposite = true; }
-    bool hasBlendModeLayersCannotComposite() const { return m_hasBlendModeLayersCannotComposite; }
     void updateViewportUnitsOnResize();
 
     WEBCORE_EXPORT void setNeedsDOMWindowResizeEvent();
@@ -2791,7 +2787,6 @@ private:
     bool m_hasPreparedForDestruction { false };
 
     bool m_hasStyleWithViewportUnits { false };
-    bool m_hasBlendModeLayersCannotComposite { false }; // AQUAWEBKIT: see the accessor.
     bool m_needsDOMWindowResizeEvent { false };
     bool m_needsVisualViewportResizeEvent { false };
     bool m_needsVisualViewportScrollEvent { false };

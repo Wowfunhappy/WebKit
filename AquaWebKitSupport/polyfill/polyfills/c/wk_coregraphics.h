@@ -9,6 +9,7 @@
 bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef);
 bool wk_dropsFocusRingStyle(CGContextRef);
 size_t wk_coreAnimationTextureLimit(void);
+void wk_beginBlendingGroupLayer(CGContextRef);
 
 // A draw between these under a blend mode QuartzCore does not implement composites through a read-back of its
 // surface. Begin answers whether it is taking place; the caller then draws into `target`.

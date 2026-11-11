@@ -34,6 +34,7 @@
 #if USE(APPKIT)
 extern "C" bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
 extern "C" bool wk_dropsFocusRingStyle(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
+extern "C" void wk_beginBlendingGroupLayer(CGContextRef); // AQUAWEBKIT: the polyfill layer's transparency layer read-back reaches.
 #endif // AQUAWEBKIT: closes the declaration above.
 
 namespace WebCore {

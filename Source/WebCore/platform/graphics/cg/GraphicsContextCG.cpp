@@ -1088,7 +1088,7 @@ void GraphicsContextCG::beginTransparencyLayer(float opacity)
     m_userToDeviceTransformKnownToBeIdentity = false;
 }
 
-// AQUAWEBKIT: marks the layer for the polyfill layer's CGContextBeginTransparencyLayer; see GraphicsContext.h.
+// AQUAWEBKIT: opens the layer through the polyfill layer's blending-group entry point; see GraphicsContext.h.
 void GraphicsContextCG::beginBlendingGroupTransparencyLayer(float opacity)
 {
     GraphicsContext::beginTransparencyLayer(opacity);
@@ -1097,12 +1097,7 @@ void GraphicsContextCG::beginBlendingGroupTransparencyLayer(float opacity)
 
     CGContextRef context = platformContext();
     CGContextSetAlpha(context, opacity);
-    static NeverDestroyed<RetainPtr<CFDictionaryRef>> blendingGroup = [] {
-        const void* keys[] = { CFSTR("AquaWebKitBlendingGroupLayer") };
-        const void* values[] = { kCFBooleanTrue };
-        return adoptCF(CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    }();
-    CGContextBeginTransparencyLayer(context, blendingGroup.get().get());
+    wk_beginBlendingGroupLayer(context);
 
     m_userToDeviceTransformKnownToBeIdentity = false;
 }

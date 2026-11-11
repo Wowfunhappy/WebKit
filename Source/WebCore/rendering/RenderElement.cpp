@@ -667,6 +667,8 @@ void RenderElement::didAttachChild(RenderObject& child, RenderObject*)
 RenderObject* RenderElement::attachRendererInternal(RenderPtr<RenderObject> child, RenderObject* beforeChild)
 {
     child->setParent(this);
+    if (CheckedPtr childElement = dynamicDowncast<RenderElement>(*child); childElement && childElement->readBackBlendSubtreeCount()) // AQUAWEBKIT
+        addReadBackBlendDescendants(childElement->readBackBlendSubtreeCount()); // AQUAWEBKIT
 
     if (m_firstChild == beforeChild)
         m_firstChild = child.get();
@@ -708,6 +710,8 @@ RenderPtr<RenderObject> RenderElement::detachRendererInternal(RenderObject& rend
 
     renderer.setPreviousSibling(nullptr);
     renderer.setNextSibling(nullptr);
+    if (CheckedPtr element = dynamicDowncast<RenderElement>(renderer); element && element->readBackBlendSubtreeCount()) // AQUAWEBKIT
+        parent->removeReadBackBlendDescendants(element->readBackBlendSubtreeCount()); // AQUAWEBKIT
     renderer.setParent(nullptr);
     return RenderPtr<RenderObject>(&renderer);
 }
@@ -1067,12 +1071,10 @@ inline void RenderCounter::rendererStyleChanged(RenderElement& renderer, const S
     rendererStyleChangedSlowCase(renderer, oldStyle, newStyle);
 }
 
-// AQUAWEBKIT: blending descendants need the transparency layers around them on the surface read-back reaches. An inline
-// box's fill layers blend with what is beneath it, as mix-blend-mode does.
-static bool usesBlendModeLayersCannotComposite(const Style::ComputedStyle& style)
+// AQUAWEBKIT: blending content needs the transparency layer around it on the surface read-back reaches. A box's fill
+// layers paint inside its own transparency layer and blend with what is beneath them, as a descendant's mix-blend-mode does.
+static bool backgroundUsesBlendModeLayersCannotComposite(const Style::ComputedStyle& style)
 {
-    if (!GraphicsLayer::supportsBlendMode(style.blendMode()))
-        return true;
     for (auto& layer : style.backgroundLayers().usedValues()) {
         if (!GraphicsLayer::supportsBlendMode(layer.blendMode()))
             return true;
@@ -1080,21 +1082,64 @@ static bool usesBlendModeLayersCannotComposite(const Style::ComputedStyle& style
     return false;
 }
 
-bool RenderElement::hasDescendantOfBlendModeLayersCannotComposite() const
+static bool usesBlendModeLayersCannotComposite(const Style::ComputedStyle& style)
 {
-    if (!document().hasBlendModeLayersCannotComposite())
-        return false;
-    for (auto& descendant : descendantsOfType<RenderElement>(*this)) {
-        if (usesBlendModeLayersCannotComposite(descendant.style()))
-            return true;
+    return !GraphicsLayer::supportsBlendMode(style.blendMode()) || backgroundUsesBlendModeLayersCannotComposite(style);
+}
+
+bool RenderElement::needsBlendingGroupTransparencyLayer() const
+{
+    return m_hasReadBackBlendDescendants || backgroundUsesBlendModeLayersCannotComposite(style());
+}
+
+// How many descendants of each renderer that has any blend in such a mode, kept as children attach and detach and as
+// styles change; m_hasReadBackBlendDescendants says whether a renderer has an entry.
+static SingleThreadWeakHashMap<RenderElement, unsigned>& readBackBlendDescendantCounts()
+{
+    static NeverDestroyed<SingleThreadWeakHashMap<RenderElement, unsigned>> counts;
+    return counts;
+}
+
+unsigned RenderElement::readBackBlendSubtreeCount() const
+{
+    if (!m_hasReadBackBlendDescendants)
+        return m_usesReadBackBlendMode;
+    return m_usesReadBackBlendMode + readBackBlendDescendantCounts().find(*this)->value;
+}
+
+void RenderElement::addReadBackBlendDescendants(unsigned count)
+{
+    for (CheckedPtr<RenderElement> ancestor = this; ancestor; ancestor = ancestor->parent()) {
+        readBackBlendDescendantCounts().ensure(*ancestor, [] { return 0u; }).iterator->value += count;
+        ancestor->m_hasReadBackBlendDescendants = true;
     }
-    return false;
+}
+
+void RenderElement::removeReadBackBlendDescendants(unsigned count)
+{
+    for (CheckedPtr<RenderElement> ancestor = this; ancestor; ancestor = ancestor->parent()) {
+        auto& counts = readBackBlendDescendantCounts();
+        auto entry = counts.find(*ancestor);
+        ASSERT(entry != counts.end() && entry->value >= count);
+        entry->value -= count;
+        if (!entry->value) {
+            counts.remove(entry);
+            ancestor->m_hasReadBackBlendDescendants = false;
+        }
+    }
 }
 
 void RenderElement::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
-    if (usesBlendModeLayersCannotComposite(style())) // AQUAWEBKIT: the sticky document flag.
-        document().setHasBlendModeLayersCannotComposite();
+    if (bool usesReadBack = usesBlendModeLayersCannotComposite(style()); usesReadBack != m_usesReadBackBlendMode) { // AQUAWEBKIT: counted on the ancestors.
+        m_usesReadBackBlendMode = usesReadBack;
+        if (CheckedPtr parent = this->parent()) {
+            if (usesReadBack)
+                parent->addReadBackBlendDescendants(1);
+            else
+                parent->removeReadBackBlendDescendants(1);
+        }
+    } // AQUAWEBKIT: closes the count update above.
 
     RefPtr protectedElement = element();
     if (protectedElement && protectedElement->shouldNotifyTextManipulationControllerIfDisplayed() && !isSkippedContent()) {

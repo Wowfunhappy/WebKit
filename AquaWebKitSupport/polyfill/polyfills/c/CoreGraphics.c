@@ -1512,7 +1512,7 @@ static void wk_fillWithGradientEnd(CGContextRef context, CGGradientRef gradient,
 {
     CGFloat edge = start ? CGRectGetMaxX(device) + 1 : CGRectGetMinX(device) - 1;
     wk_gradient_draw past = { gradient, false, CGPointMake(edge - (start ? 0 : 1), 0), 0, CGPointMake(edge + (start ? 1 : 0), 0), 0,
-        start ? kCGGradientDrawsBeforeStartLocation : kCGGradientDrawsAfterEndLocation };
+        start ? kCGGradientDrawsBeforeStartLocation : kCGGradientDrawsAfterEndLocation, false };
     if (!wk_drawGradientInBands(context, &past))
         wk_drawGradientDirectly(context, &past);
 }
@@ -1542,7 +1542,7 @@ static void wk_drawThinRadialGradient(CGContextRef context, CGGradientRef gradie
     if (!determinant || !isfinite(determinant))
         return;
     if (!isfinite(toDevice.tx) || !isfinite(toDevice.ty)) {
-        wk_gradient_draw draw = { gradient, true, center, startRadius, center, endRadius, options };
+        wk_gradient_draw draw = { gradient, true, center, startRadius, center, endRadius, options, false };
         wk_drawGradientDirectly(context, &draw);
         return;
     }
@@ -1659,7 +1659,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawRadialGradient,
             return;
         }
     }
-    wk_gradient_draw draw = { gradient, true, startCenter, startRadius, endCenter, endRadius, options };
+    wk_gradient_draw draw = { gradient, true, startCenter, startRadius, endCenter, endRadius, options, false };
     if (!context || !wk_drawGradientInBands(context, &draw))
         wk_drawGradientDirectly(context, &draw);
 }
@@ -2240,16 +2240,68 @@ static int wk_transparencyLayerOpenCount;
 // whatever its own colour space is: an sRGB image drawn into a Display P3 surface and then into an
 // sRGB one reads 234,51,35 in both. It also matches all but small images through its renderer's colour
 // cube, interpolating between nodes eight 8-bit levels apart, which puts level 1 of a linear-sRGB image
-// at sRGB 6 where ColorSync answers 13. An IOSurface draw is therefore always made through an image
-// kept for that destination colour space and released with the image. An image in another colour space
-// is matched into that space by CoreGraphics' bitmap route, which QuartzCore then draws unmatched; an
+// at sRGB 6 where ColorSync answers 13. An IOSurface draw is therefore made through an image kept for
+// that destination colour space and released with the image. An image in another colour space is
+// matched into that space by CoreGraphics' bitmap route, which QuartzCore then draws unmatched; an
 // image already in it is a CGImageCreateCopy, which shares its pixels and has a cache entry of its own
-// that no other caller can fill. 10.9 caches both a CGIOSurfaceContextCreateImage image and a
-// direct-provider image on these routes; the per-space image is what gives each destination space its
-// own matching. An image over the renderer's texture limit (below) is drawn in parts of its per-space image.
+// that no other caller can fill. An image over the renderer's texture limit (below) is drawn in parts
+// of its per-space image.
 //
-// Every image in the process carries its own copy of this archive, so the association key is a
-// selector and the lock is one object the runtime's association table holds for the whole process.
+// The one image drawn as it is: a CGIOSurfaceContextCreateImage image, into destinations of the first
+// colour space it is drawn into. QuartzCore registers that image's identifier against its surface
+// (CA::CG::IOSurfaceDataProvider::set_image), draws it from the surface's texture and matches its
+// colour at draw time; any other image over the same pixels, a CGImageCreateCopy included, is read
+// through the provider, which copies the whole surface on every draw. A write to the surface while the
+// image lives detaches it onto a copy of its bytes, after which it is cached like any other image, so
+// draws into any other colour space take the per-space image. The software renderer's colour match
+// reads out of bounds for a pixel whose alpha is 0 and colour is not (tex_color_match, below), which a
+// WebGL drawing buffer can hold, so there the first space is the image's own, and a draw into another
+// space matches the part the clip can show, which QuartzCore copies out of the image by drawing it into a
+// surface of the image's own space.
+//
+// Every image in the process carries its own copy of this archive, so the association keys are
+// selectors and the lock is one object the runtime's association table holds for the whole process.
+
+static const void *wk_surfaceContextImageKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_surfaceContextImage");
+    return key;
+}
+
+static id wk_ioSurfaceImageLock(void);
+static bool wk_hasAcceleratedCoreAnimationRenderer(void);
+
+// CGIOSurfaceContextCreateImage — a DELIBERATE REPLACEMENT of a present 10.9 function that marks the
+// image it returns for the CGContextDrawImage replacement.
+WK_POLYFILL_REPLACES("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImage, (CGContextRef context))
+{
+    CGImageRef image = WK_ORIGINAL(CGIOSurfaceContextCreateImage)(context);
+    if (image)
+        objc_setAssociatedObject((id)image, wk_surfaceContextImageKey(), (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
+    return image;
+}
+
+// A marked image is bound to the colour space of its first draw here; the association holds it.
+static bool wk_drawsFromItsSurface(CGImageRef image, CGColorSpaceRef colorSpace)
+{
+    CGColorSpaceRef imageSpace = CGImageGetColorSpace(image);
+    bool bindable = wk_hasAcceleratedCoreAnimationRenderer()
+        || (imageSpace && WK_SYSTEM(CGColorSpaceEqualToColorSpace)(imageSpace, colorSpace));
+    id lock = wk_ioSurfaceImageLock();
+    objc_sync_enter(lock);
+    id bound = objc_getAssociatedObject((id)image, wk_surfaceContextImageKey());
+    bool draws = false;
+    if (bound == (id)kCFBooleanTrue) {
+        if (bindable)
+            objc_setAssociatedObject((id)image, wk_surfaceContextImageKey(), (id)colorSpace, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        draws = bindable;
+    } else if (bound)
+        draws = WK_SYSTEM(CGColorSpaceEqualToColorSpace)((CGColorSpaceRef)(void *)bound, colorSpace);
+    objc_sync_exit(lock);
+    return draws;
+}
 
 static const void *wk_ioSurfaceImageDrawsKey(void)
 {
@@ -2499,6 +2551,7 @@ size_t wk_coreAnimationTextureLimit(void)
 }
 
 static bool wk_drawOversizedImageInIOSurface(CGContextRef, CGRect, CGImageRef);
+static bool wk_drawVisibleSurfaceRowsMatched(CGContextRef, CGRect, CGImageRef, CGColorSpaceRef);
 
 // Direct IOSurface contexts and asynchronous CA layer contexts share this renderer delegate.
 extern CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
@@ -2589,7 +2642,10 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef con
     CGColorSpaceRef bitmapSpace = NULL;
     if (context && image && wk_drawsThroughCoreAnimationIOSurface(context)) {
         CGColorSpaceRef colorSpace = CGContextGetColorSpace(context);
-        CGImageRef copy = colorSpace ? wk_imageForDestinationColorSpace(image, colorSpace) : NULL;
+        bool fromSurface = colorSpace && wk_drawsFromItsSurface(image, colorSpace);
+        if (colorSpace && !fromSurface && wk_drawVisibleSurfaceRowsMatched(context, rect, image, colorSpace))
+            return;
+        CGImageRef copy = colorSpace && !fromSurface ? wk_imageForDestinationColorSpace(image, colorSpace) : NULL;
         CGImageRef drawn = copy ? copy : image;
         if (!wk_drawOversizedImageInIOSurface(context, rect, drawn))
             WK_ORIGINAL(CGContextDrawImage)(context, rect, drawn);
@@ -2653,6 +2709,40 @@ static void wk_drawImagePart(CGContextRef context, CGRect rect, CGImageRef image
     CGImageRelease(part);
 }
 
+// The part of `rect` an image drawn into it can show through the clip, and the device pixels per image pixel along the
+// tighter axis; false when no part can. A style -- a shadow, a focus ring -- paints around what it is drawn with, so the
+// part that matters is the one whose styled output meets the clip. CGStyleGetDrawBoundingBox outsets a base-space rect
+// by the style's reach, the same distance on every side, which is also the farthest a source pixel outside the clip can
+// paint into it.
+static bool wk_visibleImageRect(CGContextRef context, CGRect rect, CGImageRef image, CGRect *visible, double *devicePerPixel)
+{
+    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    CGStyleRef style = CGContextGetStyle(context);
+    if (style) {
+        CGRect reach = CGStyleGetDrawBoundingBox(style, CGRectApplyAffineTransform(clip, ctm));
+        if (!CGRectIsNull(reach) && !CGRectIsInfinite(reach))
+            clip = CGRectApplyAffineTransform(reach, CGAffineTransformInvert(ctm));
+    }
+    *visible = CGRectIntersection(rect, clip);
+    if (CGRectIsNull(*visible) || CGRectIsEmpty(*visible))
+        return false;
+    double pixelsPerUnitX = CGImageGetWidth(image) / rect.size.width, pixelsPerUnitY = CGImageGetHeight(image) / rect.size.height;
+    *devicePerPixel = fmin(hypot(ctm.a, ctm.b) / pixelsPerUnitX, hypot(ctm.c, ctm.d) / pixelsPerUnitY);
+    return true;
+}
+
+// The image pixels behind `visible`, `margin` more on every side within the image, as left, top, right and bottom.
+static void wk_visibleImagePixels(CGRect rect, CGImageRef image, CGRect visible, double margin, double pixels[4])
+{
+    double width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    double pixelsPerUnitX = width / rect.size.width, pixelsPerUnitY = height / rect.size.height;
+    pixels[0] = fmax(floor((CGRectGetMinX(visible) - CGRectGetMinX(rect)) * pixelsPerUnitX) - margin, 0);
+    pixels[1] = fmax(floor((CGRectGetMaxY(rect) - CGRectGetMaxY(visible)) * pixelsPerUnitY) - margin, 0);
+    pixels[2] = fmin(ceil((CGRectGetMaxX(visible) - CGRectGetMinX(rect)) * pixelsPerUnitX) + margin, width);
+    pixels[3] = fmin(ceil((CGRectGetMaxY(rect) - CGRectGetMinY(visible)) * pixelsPerUnitY) + margin, height);
+}
+
 // Answers whether the draw was made here; false leaves it to 10.9, which draws an image within the limit.
 static bool wk_drawOversizedImageInIOSurface(CGContextRef context, CGRect rect, CGImageRef image)
 {
@@ -2663,33 +2753,20 @@ static bool wk_drawOversizedImageInIOSurface(CGContextRef context, CGRect rect, 
     if (CGImageIsMask(image) || !(rect.size.width > 0) || !(rect.size.height > 0))
         return false;
 
-    // A style -- a shadow, a focus ring -- paints around what it is drawn with, so the part that matters is
-    // the one whose styled output meets the clip. CGStyleGetDrawBoundingBox outsets a base-space rect by the
-    // style's reach, the same distance on every side, which is also the farthest a source pixel outside the
-    // clip can paint into it.
-    CGAffineTransform ctm = CGContextGetCTM(context);
-    CGRect clip = CGContextGetClipBoundingBox(context);
-    CGStyleRef style = CGContextGetStyle(context);
-    if (style) {
-        CGRect reach = CGStyleGetDrawBoundingBox(style, CGRectApplyAffineTransform(clip, ctm));
-        if (!CGRectIsNull(reach) && !CGRectIsInfinite(reach))
-            clip = CGRectApplyAffineTransform(reach, CGAffineTransformInvert(ctm));
-    }
-    CGRect visible = CGRectIntersection(rect, clip);
-    if (CGRectIsNull(visible) || CGRectIsEmpty(visible))
+    CGRect visible;
+    double devicePerPixel;
+    if (!wk_visibleImageRect(context, rect, image, &visible, &devicePerPixel))
         return true;
 
     // The source pixels a filter reads beyond a part's edge: a couple, widened by how far the draw shrinks. A
     // tile's core still has to cover a destination pixel, which bounds the margin on either side of it.
     double pixelsPerUnitX = width / rect.size.width, pixelsPerUnitY = height / rect.size.height;
-    double devicePerPixel = fmin(hypot(ctm.a, ctm.b) / pixelsPerUnitX, hypot(ctm.c, ctm.d) / pixelsPerUnitY);
     double pixelsPerDevicePixel = ceil(1 / fmin(devicePerPixel, 1));
     double margin = fmax(fmin(ceil(2 / fmin(devicePerPixel, 1)) + 2, floor((limit - pixelsPerDevicePixel) / 2)), 0);
 
-    double left = fmax(floor((CGRectGetMinX(visible) - CGRectGetMinX(rect)) * pixelsPerUnitX) - margin, 0);
-    double right = fmin(ceil((CGRectGetMaxX(visible) - CGRectGetMinX(rect)) * pixelsPerUnitX) + margin, width);
-    double top = fmax(floor((CGRectGetMaxY(rect) - CGRectGetMaxY(visible)) * pixelsPerUnitY) - margin, 0);
-    double bottom = fmin(ceil((CGRectGetMaxY(rect) - CGRectGetMinY(visible)) * pixelsPerUnitY) + margin, height);
+    double pixels[4];
+    wk_visibleImagePixels(rect, image, visible, margin, pixels);
+    double left = pixels[0], top = pixels[1], right = pixels[2], bottom = pixels[3];
     if (right <= left || bottom <= top)
         return true;
     if (right - left <= limit && bottom - top <= limit) {
@@ -2722,6 +2799,103 @@ static bool wk_drawOversizedImageInIOSurface(CGContextRef context, CGRect rect, 
         }
     }
     CGContextEndTransparencyLayer(context);
+    return true;
+}
+
+static void wk_freeRowBytes(void *info, const void *data, size_t size)
+{
+    (void)info;
+    (void)size;
+    free((void *)data);
+}
+
+// Answers whether the draw was made here: under the software renderer, the part of a marked image the clip can show,
+// drawn by QuartzCore into a surface of the image's own colour space and matched from there into `colorSpace` as a
+// whole image would be. False leaves the draw to the per-space image.
+static bool wk_drawVisibleSurfaceRowsMatched(CGContextRef context, CGRect rect, CGImageRef image, CGColorSpaceRef colorSpace)
+{
+    if (wk_hasAcceleratedCoreAnimationRenderer() || !objc_getAssociatedObject((id)image, wk_surfaceContextImageKey())
+        || CGImageIsMask(image) || !(rect.size.width > 0) || !(rect.size.height > 0))
+        return false;
+    CGColorSpaceRef imageSpace = CGImageGetColorSpace(image);
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+    if (!imageSpace || CGImageGetBitsPerComponent(image) != 8 || CGImageGetBitsPerPixel(image) != 32 || CGImageGetDecode(image)
+        || (alpha != kCGImageAlphaPremultipliedFirst && alpha != kCGImageAlphaPremultipliedLast)
+        || !wk_drawsFromItsSurface(image, imageSpace))
+        return false;
+
+    CGRect visible;
+    double devicePerPixel;
+    if (!wk_visibleImageRect(context, rect, image, &visible, &devicePerPixel))
+        return true;
+    double pixels[4];
+    wk_visibleImagePixels(rect, image, visible, ceil(2 / fmin(devicePerPixel, 1)) + 2, pixels);
+    int columns = (int)(pixels[2] - pixels[0]), rows = (int)(pixels[3] - pixels[1]), pixelBytes = 4;
+    if (columns <= 0 || rows <= 0)
+        return true;
+
+    CFNumberRef width = CFNumberCreate(NULL, kCFNumberIntType, &columns);
+    CFNumberRef height = CFNumberCreate(NULL, kCFNumberIntType, &rows);
+    CFNumberRef bytes = CFNumberCreate(NULL, kCFNumberIntType, &pixelBytes);
+    const void *keys[] = { WK_SYSTEM(kIOSurfaceWidth), WK_SYSTEM(kIOSurfaceHeight), WK_SYSTEM(kIOSurfaceBytesPerElement) };
+    const void *values[] = { width, height, bytes };
+    CFDictionaryRef properties = CFDictionaryCreate(NULL, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    IOSurfaceRef surface = WK_SYSTEM(IOSurfaceCreate)(properties);
+    CFRelease(properties);
+    CFRelease(bytes);
+    CFRelease(height);
+    CFRelease(width);
+    if (!surface)
+        return false;
+    const CGBitmapInfo partInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst;
+    CGContextRef part = CGIOSurfaceContextCreate(surface, columns, rows, 8, 32, imageSpace, partInfo);
+    if (!part) {
+        CFRelease(surface);
+        return false;
+    }
+    double imageWidth = CGImageGetWidth(image), imageHeight = CGImageGetHeight(image);
+    CGContextSetBlendMode(part, kCGBlendModeCopy);
+    CGContextSetInterpolationQuality(part, kCGInterpolationNone);
+    CGRect imageRect = CGRectMake(-pixels[0], pixels[3] - imageHeight, imageWidth, imageHeight);
+    if (!wk_drawOversizedImageInIOSurface(part, imageRect, image))
+        WK_ORIGINAL(CGContextDrawImage)(part, imageRect, image);
+    CGContextFlush(part);
+    CGContextRelease(part);
+
+    size_t stride = WK_SYSTEM(IOSurfaceGetBytesPerRow)(surface);
+    uint8_t *copied = malloc((size_t)columns * rows * 4);
+    if (!copied)
+        abort();
+    if (WK_SYSTEM(IOSurfaceLock)(surface, kIOSurfaceLockReadOnly, NULL)) {
+        free(copied);
+        CFRelease(surface);
+        return false;
+    }
+    const uint8_t *base = (const uint8_t *)WK_SYSTEM(IOSurfaceGetBaseAddress)(surface);
+    for (int row = 0; row < rows; row++)
+        memcpy(copied + (size_t)row * columns * 4, base + row * stride, (size_t)columns * 4);
+    WK_SYSTEM(IOSurfaceUnlock)(surface, kIOSurfaceLockReadOnly, NULL);
+    CFRelease(surface);
+
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, copied, (size_t)columns * rows * 4, wk_freeRowBytes);
+    if (!provider) {
+        free(copied);
+        return false;
+    }
+    CGImageRef partImage = CGImageCreate(columns, rows, 8, 32, (size_t)columns * 4, imageSpace, partInfo, provider, NULL,
+        CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
+    CGDataProviderRelease(provider);
+    CGImageRef matched = partImage ? wk_createImageMatchedToColorSpace(partImage, colorSpace) : NULL;
+    if (partImage)
+        CGImageRelease(partImage);
+    if (!matched)
+        return false;
+    double pixelsPerUnitX = imageWidth / rect.size.width, pixelsPerUnitY = imageHeight / rect.size.height;
+    CGRect partRect = CGRectMake(CGRectGetMinX(rect) + pixels[0] / pixelsPerUnitX, CGRectGetMaxY(rect) - pixels[3] / pixelsPerUnitY,
+        columns / pixelsPerUnitX, rows / pixelsPerUnitY);
+    if (!wk_drawOversizedImageInIOSurface(context, partRect, matched))
+        WK_ORIGINAL(CGContextDrawImage)(context, partRect, matched);
+    CGImageRelease(matched);
     return true;
 }
 
@@ -3172,9 +3346,9 @@ bool wk_isInsideTransparencyLayer(CGContextRef context)
 }
 
 // The transparency layers open on a QuartzCore-rendered context, innermost first. A draw inside an offscreen layer
-// has a destination no read-back can reach, so a layer whose contents blend comes marked (the auxiliary-info key
-// below) and opens no offscreen: its draws land on the cleared surface, where read-back reaches them, and its
-// result composites with the destination at its end.
+// has a destination no read-back can reach, so WebKit opens a layer whose contents blend through
+// wk_beginBlendingGroupLayer, which opens no offscreen: its draws land on the cleared surface, where read-back
+// reaches them, and its result composites with the destination at its end.
 typedef enum { wk_layerOffscreen, wk_layerOffscreenUnderReadBack, wk_layerOnSurface } wk_surface_layer_kind;
 struct wk_surface_layer {
     CGContextRef context;
@@ -3185,7 +3359,6 @@ struct wk_surface_layer {
 };
 static struct wk_surface_layer *wk_surfaceLayers;
 static int wk_surfaceLayerCount;
-static const CFStringRef wk_blendingGroupLayerKey = CFSTR("AquaWebKitBlendingGroupLayer");
 extern CGFloat CGContextGetAlpha(CGContextRef);
 
 static bool wk_insideOffscreenSurfaceLayer(CGContextRef context)
@@ -3239,22 +3412,11 @@ static bool wk_blendModeTakesReadBack(CGBlendMode mode);
 static bool wk_dropsStyle(CGStyleRef style);
 static bool wk_isFocusRing(CGStyleRef style);
 
-// Answers whether the layer was opened here, with no offscreen.
-static bool wk_beginSurfaceLayer(CGContextRef context, CFDictionaryRef auxiliaryInfo)
+// Records an offscreen layer about to open, and whether its result composites through read-back.
+static void wk_beginSurfaceLayer(CGContextRef context)
 {
     if (!context || !wk_drawsThroughCoreAnimationIOSurface(context))
-        return false;
-    if (auxiliaryInfo && CFDictionaryContainsKey(auxiliaryInfo, wk_blendingGroupLayerKey) && !wk_insideOffscreenSurfaceLayer(context)) {
-        CGFloat alpha = CGContextGetAlpha(context);
-        wk_blend_read_back readBack;
-        if (wk_beginReadBack(context, CGContextGetBlendMode(context), &readBack)) {
-            CGContextSaveGState(context);
-            CGContextSetAlpha(context, 1);
-            CGContextSetShadowWithColor(context, CGSizeZero, 0, NULL);
-            wk_pushSurfaceLayer(context, wk_layerOnSurface, &readBack, alpha);
-            return true;
-        }
-    }
+        return;
     wk_blend_read_back readBack;
     CGStyleRef style = CGContextGetStyle(context);
     CGFloat alpha = CGContextGetAlpha(context);
@@ -3268,39 +3430,39 @@ static bool wk_beginSurfaceLayer(CGContextRef context, CFDictionaryRef auxiliary
     }
     else
         wk_pushSurfaceLayer(context, wk_layerOffscreen, NULL, 1);
-    return false;
-}
-
-// The auxiliary info without the blending group key, as CoreGraphics takes it.
-static CFDictionaryRef wk_copyAuxiliaryInfoForCoreGraphics(CFDictionaryRef auxiliaryInfo)
-{
-    if (!auxiliaryInfo)
-        return NULL;
-    CFMutableDictionaryRef copy = CFDictionaryCreateMutableCopy(NULL, 0, auxiliaryInfo);
-    CFDictionaryRemoveValue(copy, wk_blendingGroupLayerKey);
-    return copy;
 }
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayer, (CGContextRef context, CFDictionaryRef auxiliaryInfo))
 {
-    if (wk_beginSurfaceLayer(context, auxiliaryInfo))
-        return;
+    wk_beginSurfaceLayer(context);
     wk_transparencyLayerBegan(context);
-    CFDictionaryRef forwarded = wk_copyAuxiliaryInfoForCoreGraphics(auxiliaryInfo);
-    WK_ORIGINAL(CGContextBeginTransparencyLayer)(context, forwarded);
-    if (forwarded)
-        CFRelease(forwarded);
+    WK_ORIGINAL(CGContextBeginTransparencyLayer)(context, auxiliaryInfo);
 }
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayerWithRect, (CGContextRef context, CGRect rect, CFDictionaryRef auxiliaryInfo))
 {
-    if (wk_beginSurfaceLayer(context, auxiliaryInfo))
-        return;
+    wk_beginSurfaceLayer(context);
     wk_transparencyLayerBegan(context);
-    CFDictionaryRef forwarded = wk_copyAuxiliaryInfoForCoreGraphics(auxiliaryInfo);
-    WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, forwarded);
-    if (forwarded)
-        CFRelease(forwarded);
+    WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, auxiliaryInfo);
+}
+
+// A transparency layer for WebKit's blending groups. On a QuartzCore-rendered context outside any offscreen layer it
+// opens none, so read-back reaches the draws inside; CGContextEndTransparencyLayer composites it. Anywhere else it is
+// an ordinary transparency layer.
+void wk_beginBlendingGroupLayer(CGContextRef context)
+{
+    if (context && wk_drawsThroughCoreAnimationIOSurface(context) && !wk_insideOffscreenSurfaceLayer(context)) {
+        CGFloat alpha = CGContextGetAlpha(context);
+        wk_blend_read_back readBack;
+        if (wk_beginReadBack(context, CGContextGetBlendMode(context), &readBack)) {
+            CGContextSaveGState(context);
+            CGContextSetAlpha(context, 1);
+            CGContextSetShadowWithColor(context, CGSizeZero, 0, NULL);
+            wk_pushSurfaceLayer(context, wk_layerOnSurface, &readBack, alpha);
+            return;
+        }
+    }
+    CGContextBeginTransparencyLayer(context, NULL);
 }
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGContextRef context))

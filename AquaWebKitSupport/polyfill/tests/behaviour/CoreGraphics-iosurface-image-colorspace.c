@@ -34,7 +34,6 @@ CGColorSpaceRef CGContextGetColorSpace(CGContextRef);
 bool CGColorSpaceEqualToColorSpace(CGColorSpaceRef, CGColorSpaceRef);
 
 enum { kSide = 4, kDeGetColorSpace = 30 };
-static const CGBitmapInfo kBGRA = (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little;
 
 #if defined(WK_PROBE_SIDE_A) || defined(WK_PROBE_SIDE_B)
 
@@ -54,6 +53,8 @@ __attribute__((visibility("default"))) CGColorSpaceRef wk_probe_color_space(CGCo
 }
 
 #else
+
+static const CGBitmapInfo kBGRA = (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little;
 
 static int failures;
 static void check(int ok, const char *what)

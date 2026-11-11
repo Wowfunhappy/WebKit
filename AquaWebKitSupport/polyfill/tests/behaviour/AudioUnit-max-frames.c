@@ -300,6 +300,8 @@ int main(void)
         AudioUnitGetProperty(held, kAudioUnitProperty_LastRenderError, kAudioUnitScope_Global, 0,
             &lastRenderError, &lastRenderErrorSize);
         check(lastRenderError == noErr, "no render failed across the lowering and the raise");
+        if (lastRenderError != noErr)
+            printf("    last render error %d\n", (int)lastRenderError);
 
         AudioOutputUnitStop(held);
         AudioUnitUninitialize(held);

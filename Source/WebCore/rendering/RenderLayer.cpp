@@ -2751,9 +2751,9 @@ void RenderLayer::beginTransparencyLayers(GraphicsContext& context, const LayerP
         if (usesCompositeOperation)
             context.setCompositeOperation(context.compositeOperation(), blendMode());
 
-        // AQUAWEBKIT: a layer that descendants of a mode layers cannot composite blend within; see GraphicsContext.h.
+        // AQUAWEBKIT: a layer that content of a mode layers cannot composite blends within; see GraphicsContext.h.
         // context.beginTransparencyLayer(renderer().opacity());
-        if (renderer().hasDescendantOfBlendModeLayersCannotComposite())
+        if (renderer().needsBlendingGroupTransparencyLayer())
             context.beginBlendingGroupTransparencyLayer(renderer().opacity());
         else
             context.beginTransparencyLayer(renderer().opacity());

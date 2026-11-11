@@ -131,9 +131,9 @@ void SVGRenderingContext::prepareToRenderSVGContent(RenderElement& renderer, Pai
             if (hasBlendMode)
                 m_paintInfo->context().setCompositeOperation(m_paintInfo->context().compositeOperation(), style.blendMode());
 
-            // AQUAWEBKIT: a layer that descendants of a mode layers cannot composite blend within; see GraphicsContext.h.
+            // AQUAWEBKIT: a layer that content of a mode layers cannot composite blends within; see GraphicsContext.h.
             // m_paintInfo->context().beginTransparencyLayer(opacity);
-            if (renderer.hasDescendantOfBlendModeLayersCannotComposite())
+            if (renderer.needsBlendingGroupTransparencyLayer())
                 m_paintInfo->context().beginBlendingGroupTransparencyLayer(opacity);
             else
                 m_paintInfo->context().beginTransparencyLayer(opacity);

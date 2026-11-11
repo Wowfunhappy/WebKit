@@ -533,6 +533,12 @@ probe_cg_iosurface_image_reference() {
         "$T/cg_iosurface_image_reference"
 }
 
+probe_cg_iosurface_context_image_draw() {
+    "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_context_image_draw" \
+        "$TBEHAV/CoreGraphics-iosurface-context-image-draw.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface -framework OpenGL &&
+        "$T/cg_iosurface_context_image_draw"
+}
+
 probe_cg_iosurface_premultiplied_sanitize() {
     "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_premultiplied_sanitize" \
         "$TBEHAV/CoreGraphics-iosurface-premultiplied-sanitize.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
@@ -1276,6 +1282,7 @@ run_probe stroke_line_segments "$@"
 run_probe ax_client_identification "$@"
 run_probe cg_iosurface_image_colorspace "$@"
 run_probe cg_iosurface_image_matching "$@"
+run_probe cg_iosurface_context_image_draw "$@"
 run_probe cg_gradient_dither_space "$@"
 run_probe cg_radial_coinciding "$@"
 run_probe cg_radial_iosurface "$@"

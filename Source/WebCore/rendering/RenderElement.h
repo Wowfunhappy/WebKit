@@ -223,7 +223,8 @@ public:
     inline bool hasFilter() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasBackdropFilter() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasBlendMode() const; // Defined in RenderElementStyleInlines.h.
-    bool hasDescendantOfBlendModeLayersCannotComposite() const; // AQUAWEBKIT: decides which transparency layers GraphicsContext marks.
+    bool needsBlendingGroupTransparencyLayer() const; // AQUAWEBKIT: whether its transparency layer holds a blend mode layers cannot composite.
+    bool hasReadBackBlendDescendants() const { return m_hasReadBackBlendDescendants; } // AQUAWEBKIT: see the counts in RenderElement.cpp.
     inline bool hasShapeOutside() const; // Defined in RenderElementStyleInlines.h.
 
     IntBoxExtent computeFilterOutsets() const;
@@ -481,7 +482,14 @@ private:
     unsigned m_didContributeToVisuallyNonEmptyPixelCount : 1 { false };
     unsigned m_scrollAnchoringSuppressionStyleChanged : 1 { false };
     unsigned m_isInPendingSVGTransformAttributeUpdates : 1 { false };
-    // 11 bits free.
+    unsigned m_usesReadBackBlendMode : 1 { false }; // AQUAWEBKIT: see the counts in RenderElement.cpp.
+    unsigned m_hasReadBackBlendDescendants : 1 { false }; // AQUAWEBKIT: see the counts in RenderElement.cpp.
+    // 9 bits free. // AQUAWEBKIT: the two read-back blend bits above take two of upstream's 11.
+
+    // AQUAWEBKIT: see the counts in RenderElement.cpp.
+    void addReadBackBlendDescendants(unsigned count);
+    void removeReadBackBlendDescendants(unsigned count);
+    unsigned readBackBlendSubtreeCount() const;
 
     Style::ComputedStyle m_style;
 };

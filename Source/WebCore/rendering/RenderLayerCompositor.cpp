@@ -3317,7 +3317,7 @@ bool RenderLayerCompositor::requiresCompositingLayer(const RenderLayer& layer, R
         // AQUAWEBKIT: mix-blend-mode makes a flat group, so an element of a blend mode layers cannot composite and its
         // descendants paint into the ancestor's backing, except content that only has a layer to show it. Overlap, which
         // does not come through here, keeps a layer above what it overlaps.
-        for (auto* ancestor = renderer.document().hasBlendModeLayersCannotComposite() ? &layer : nullptr; ancestor; ancestor = ancestor->parent()) {
+        for (auto* ancestor = renderer.view().hasReadBackBlendDescendants() ? &layer : nullptr; ancestor; ancestor = ancestor->parent()) {
             if (ancestor->hasBlendMode() && !GraphicsLayer::supportsBlendMode(ancestor->blendMode()) && !ancestor->isRenderViewLayer()) {
                 bool showsContentsThroughLayer = requiresCompositingForVideo(renderer)
                     || (renderer.isRenderHTMLCanvas() && canvasCompositingStrategy(renderer) == CanvasAsLayerContents)

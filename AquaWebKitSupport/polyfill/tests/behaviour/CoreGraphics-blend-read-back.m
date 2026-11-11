@@ -8,7 +8,7 @@
 // route draws it, where a normal draw takes QuartzCore's. Under the software renderer the result is also within what is
 // pinned per mode and primitive, those being the source's rounding as the modes amplify it. A GPU rounds differently, and
 // CG's HSL composites turn one level of source into as many as 32. Text the cleared surface draws without font smoothing is compared with
-// smoothing off at its partly covered pixels. A PDF page reads back. A marked layer holds blended draws, nests, and takes
+// smoothing off at its partly covered pixels. A PDF page reads back. A blending-group layer holds blended draws, nests, and takes
 // the group's alpha. A fill under a shadow composites shadow then source. A current path survives and the blend mode is
 // restored. QuartzCore's own hue draw equals its normal draw, which is the premise.
 #import <Cocoa/Cocoa.h>
@@ -19,6 +19,8 @@
 #include <math.h>
 #include <mach-o/dyld.h>
 #include <stdio.h>
+
+void wk_beginBlendingGroupLayer(CGContextRef);
 
 CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
 extern CGBlendMode CGContextGetBlendMode(CGContextRef);
@@ -521,11 +523,8 @@ int main(void)
         gSourceAlpha = 1;
         gLayerAlpha = 1;
 
-        // A marked layer: a blended draw inside it blends with the layer's contents, nested too, under the group's alpha.
+        // A blending-group layer: a blended draw inside it blends with the layer's contents, nested too, under the group's alpha.
         {
-            const void *keys[] = { CFSTR("AquaWebKitBlendingGroupLayer") };
-            const void *values[] = { kCFBooleanTrue };
-            CFDictionaryRef marked = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
             for (int nested = 0; nested < 2; nested++) {
                 for (int groupAlpha = 0; groupAlpha < 2; groupAlpha++) {
                     Target surface = createTarget(true), bitmap = createTarget(false);
@@ -533,11 +532,11 @@ int main(void)
                         CGContextRef c = pass ? bitmap.context : surface.context;
                         prepare(c, 1);
                         CGContextSetAlpha(c, groupAlpha ? 0.6 : 1);
-                        CGContextBeginTransparencyLayer(c, marked);
+                        wk_beginBlendingGroupLayer(c);
                         CGContextSetRGBFillColor(c, 0.9, 0.8, 0.1, 1);
                         CGContextFillRect(c, CGRectMake(32, 32, 192, 192));
                         if (nested) {
-                            CGContextBeginTransparencyLayer(c, marked);
+                            wk_beginBlendingGroupLayer(c);
                             CGContextSetRGBFillColor(c, 0.1, 0.2, 0.9, 1);
                             CGContextFillRect(c, CGRectMake(48, 48, 160, 160));
                         }
@@ -555,14 +554,13 @@ int main(void)
                     for (size_t i = 0; i < kSide * kSide * 4; i++)
                         largest = MAX(largest, abs(surfacePixels[i] - bitmapPixels[i]));
                     char what[140];
-                    snprintf(what, sizeof(what), "luminosity in a marked layer%s%s: within 2 of the bitmap everywhere (largest %d)", nested ? ", nested" : "", groupAlpha ? ", group alpha 0.6" : "", largest);
+                    snprintf(what, sizeof(what), "luminosity in a blending-group layer%s%s: within 2 of the bitmap everywhere (largest %d)", nested ? ", nested" : "", groupAlpha ? ", group alpha 0.6" : "", largest);
                     check(largest <= 2, what);
                     CGContextRelease(surface.context);
                     CGContextRelease(bitmap.context);
                     CFRelease(surface.surface);
                 }
             }
-            CFRelease(marked);
         }
 
         // A shadow under each mode.
@@ -673,8 +671,6 @@ int main(void)
 
         // CoreGraphics measures a shadow in base space, so at contents scale 2 it reaches twice as many device pixels.
         [NSApplication sharedApplication];
-        CFStringRef markedKeys[] = { CFSTR("AquaWebKitBlendingGroupLayer") };
-        CFDictionaryRef marked = CFDictionaryCreate(NULL, (const void **)markedKeys, (const void **)&kCFBooleanTrue, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
         CGColorRef scaleShadow = CGColorCreateGenericRGB(0, 0, 0, 0.8);
         for (int scale = 1; scale <= 2; scale++) {
             for (size_t m = 0; m < 4; m++) {
@@ -687,19 +683,18 @@ int main(void)
                         CGContextSetShadowWithColor(c, CGSizeMake(6, -6), 5, scaleShadow);
                         CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1);
                         if (inLayer)
-                            CGContextBeginTransparencyLayer(c, marked);
+                            wk_beginBlendingGroupLayer(c);
                         CGContextFillRect(c, CGRectMake(64, 64, 96, 96));
                         if (inLayer)
                             CGContextEndTransparencyLayer(c);
                     });
                     char what[140];
-                    snprintf(what, sizeof(what), "%s %s under a shadow, async layer at scale %d: within 3 of the bitmap (largest %d)", kModes[m].name, inLayer ? "marked layer" : "fill", scale, largest);
+                    snprintf(what, sizeof(what), "%s %s under a shadow, async layer at scale %d: within 3 of the bitmap (largest %d)", kModes[m].name, inLayer ? "blending-group layer" : "fill", scale, largest);
                     check(largest <= 3, what);
                 }
             }
         }
         CGColorRelease(scaleShadow);
-        CFRelease(marked);
 
         // Text under a shadow: the context's text matrix and position hold, and the position advances as a bitmap's does.
         {
