@@ -29,23 +29,24 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WRITING_TOOLS PRIVATE OFF)
 # content-key session path are macOS 14 APIs. Feature-default validation applies to macOS 14 and
 # later, where every capability a preference's default depends on (Speech.framework recognition
 # for SpeechRecognitionEnabled, among others) is present.
-add_compile_definitions(
-    ENABLE_FEATURE_DEFAULT_VALIDATION=0
-    ENABLE_THREADED_ANIMATIONS=0
-    USE_SANDBOX_VERSION_3=0
-    USE_NSPRESENTATIONSTATE=0
-    USE_MODERN_AVCONTENTKEYSESSION_WITH_VTDECOMPRESSIONSESSION=0
-)
+# These answers, and the ones below, go into cmakeconfig.h, which config.h includes ahead of
+# wtf/Platform.h, so they reach WebKit's own sources and never the third-party targets (ANGLE,
+# libwebrtc, bmalloc) or the precompiled headers those build.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_FEATURE_DEFAULT_VALIDATION OFF)
+SET_AND_EXPOSE_TO_BUILD(ENABLE_THREADED_ANIMATIONS OFF)
+SET_AND_EXPOSE_TO_BUILD(USE_SANDBOX_VERSION_3 OFF)
+SET_AND_EXPOSE_TO_BUILD(USE_NSPRESENTATIONSTATE OFF)
+SET_AND_EXPOSE_TO_BUILD(USE_MODERN_AVCONTENTKEYSESSION_WITH_VTDECOMPRESSIONSESSION OFF)
 
 # Mavericks uses the application's WebGrammarCheckingEnabled preference.
-add_compile_definitions(USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY=0)
+SET_AND_EXPOSE_TO_BUILD(USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY OFF)
 
 # WebGPU's native backend requires Metal, which this deployment target does not provide.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBGPU PRIVATE OFF)
 
 # WebGL runs on ANGLE's OpenGL (CGL) backend (ANGLEPlatformAquaWebKit.cmake). ANGLE's Metal backend, and
 # the Metal shared events and devices GraphicsContextGLCocoa.mm uses with it, require Metal (10.11+).
-add_compile_definitions(WK_WEBGL_METAL_BACKEND=0)
+SET_AND_EXPOSE_TO_BUILD(WK_WEBGL_METAL_BACKEND OFF)
 
 # the modern third-party libraries this port links — ICU,
 # libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, SQLite, and the GStreamer media
@@ -125,7 +126,7 @@ unset(_line)
 unset(_part)
 
 # this port's values for the features PlatformEnableCocoa.h decides with a
-# `#if !defined(ENABLE_X)` block. A command-line definition preempts that block, so the port states
+# `#if !defined(ENABLE_X)` block. A cmakeconfig.h definition preempts that block, so the port states
 # its answer here rather than editing the shared header.
 #   IMAGE_ANALYSIS_ENHANCEMENTS   builds on VisionKit's VKCImageAnalysis (macOS 13+).
 #   LEGACY_PDFKIT_PLUGIN          the inline PDF plugin needs PDFKit SPI 10.9 lacks; PDFs download.
@@ -144,17 +145,19 @@ unset(_part)
 #   CFPREFS_DIRECT_MODE           upstream pairs direct mode with _CFPrefsSetReadOnly, and 10.9's
 #                                 CoreFoundation has no read-only mode: its direct mode writes plists
 #                                 in-process. Child processes read preferences through cfprefsd.
-add_compile_definitions(
-    ENABLE_CFPREFS_DIRECT_MODE=0
-    ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
-    ENABLE_LEGACY_PDFKIT_PLUGIN=0
-    ENABLE_REVEAL=0
-    ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
-    ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
-    ENABLE_DNS_SERVER_FOR_TESTING=0
-    ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS=0
-    ENABLE_NETWORK_ISSUE_REPORTING=0
-)
+foreach (_feature IN ITEMS
+    ENABLE_CFPREFS_DIRECT_MODE
+    ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS
+    ENABLE_LEGACY_PDFKIT_PLUGIN
+    ENABLE_REVEAL
+    ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT
+    ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT
+    ENABLE_DNS_SERVER_FOR_TESTING
+    ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS
+    ENABLE_NETWORK_ISSUE_REPORTING)
+    SET_AND_EXPOSE_TO_BUILD(${_feature} OFF)
+endforeach ()
+unset(_feature)
 
 # PlatformHave.h turns the Cookie Store API on by default from a macOS 15.4 deployment target, which
 # is a ship-date gate rather than a capability one: this engine carries the whole implementation
@@ -162,7 +165,7 @@ add_compile_definitions(
 # other input is this flag. At 10.9 the guard leaves it 0, so defaultCookieStoreAPIEnabled() answers
 # false and `cookieStore` is undefined -- the entire imported/w3c/web-platform-tests/cookiestore suite
 # throws before it can report. The #if !defined() guard around it takes this definition.
-add_compile_definitions(ENABLE_COOKIE_STORE_API_BY_DEFAULT=1)
+SET_AND_EXPOSE_TO_BUILD(ENABLE_COOKIE_STORE_API_BY_DEFAULT ON)
 
 # The source-list filter macro used by the WebCore/WebKit platform overlays.
 include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/AquaWebKitSourceLists.cmake)
@@ -327,7 +330,7 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PICTURE_IN_PICTURE_API PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE OFF)
 
 # AVKit playback controls require PlaybackSessionInterfaceMac and its video-presentation backend.
-add_compile_definitions(ENABLE_WEB_PLAYBACK_CONTROLS_MANAGER=0)
+SET_AND_EXPOSE_TO_BUILD(ENABLE_WEB_PLAYBACK_CONTROLS_MANAGER OFF)
 
 # OFF -- WebXR needs an OpenXR runtime to bind against, and there is no OpenXR
 # framework on 10.9 (verified absent from both /System/Library/Frameworks and PrivateFrameworks) nor any
