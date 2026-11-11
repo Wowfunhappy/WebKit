@@ -14,6 +14,7 @@ extern "C" {
 // CGContextGetType's results measured on 10.9 (bitmap contexts report 4). They match kCGContextTypePDF
 // and kCGContextTypeIOSurface in PAL's CoreGraphicsSPI.h.
 #define WK_CG_CONTEXT_TYPE_PDF 1
+#define WK_CG_CONTEXT_TYPE_WINDOW 3
 #define WK_CG_CONTEXT_TYPE_BITMAP 4
 #define WK_CG_CONTEXT_TYPE_IOSURFACE 8
 

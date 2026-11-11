@@ -5,6 +5,7 @@
 #include "wk_helpers.h"
 #include "wk_coregraphics.h"
 
+#include <emmintrin.h>
 #include <stdatomic.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -3412,18 +3413,95 @@ static bool wk_blendModeTakesReadBack(CGBlendMode mode);
 static bool wk_dropsStyle(CGStyleRef style);
 static bool wk_isFocusRing(CGStyleRef style);
 
+static bool wk_isHSLBlendMode(CGBlendMode);
+
+// 10.9's raster delegate (libRIP) is told by its BeginLayer callback, at offset 0xb8 of the delegate, learned from a bitmap
+// context made here; it stacks the transparency layers open on a context at offset 0x58 of its context, the delegate's
+// info, and draws into the top one, which the bitmap's data does not hold.
+static const void *wk_rasterBeginLayerCallback;
+
+static void wk_learnRasterDelegate(void)
+{
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(NULL, 1, 1, 8, 4, space, kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst);
+    wk_rasterBeginLayerCallback = *(const void **)((const char *)CGContextGetDelegate(context) + 0xb8);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+}
+
+static bool wk_rasterContextHasOpenLayer(CGContextRef context)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_learnRasterDelegate);
+    void *delegate = CGContextGetDelegate(context);
+    if (*(const void **)((const char *)delegate + 0xb8) != wk_rasterBeginLayerCallback)
+        return true;
+    return *(void **)((char *)CGContextDelegateGetInfo(delegate) + 0x58) != NULL;
+}
+
+// A bitmap context 10.9's raster delegate draws into directly, 8 bits per component in 32-bit pixels of an RGB colour
+// space: 10.9's CoreGraphics composites hue and saturation into one wrong for some orders of a colour's components, so
+// draws under the HSL modes composite through read-back as they do on a QuartzCore-rendered surface.
+static bool wk_readsBackBitmap(CGContextRef context)
+{
+    if (!context || WK_SYSTEM(CGContextGetType)(context) != WK_CG_CONTEXT_TYPE_BITMAP)
+        return false;
+    CGColorSpaceRef space = CGBitmapContextGetColorSpace(context);
+    CGBitmapInfo info = CGBitmapContextGetBitmapInfo(context);
+    CGImageAlphaInfo alpha = (CGImageAlphaInfo)(info & kCGBitmapAlphaInfoMask);
+    CGBitmapInfo order = info & kCGBitmapByteOrderMask;
+    return CGBitmapContextGetData(context) && CGBitmapContextGetBitsPerComponent(context) == 8 && CGBitmapContextGetBitsPerPixel(context) == 32
+        && space && CGColorSpaceGetModel(space) == kCGColorSpaceModelRGB && !(info & kCGBitmapFloatComponents)
+        && (alpha == kCGImageAlphaPremultipliedFirst || alpha == kCGImageAlphaPremultipliedLast
+            || alpha == kCGImageAlphaNoneSkipFirst || alpha == kCGImageAlphaNoneSkipLast)
+        && (order == kCGBitmapByteOrderDefault || order == kCGBitmapByteOrder32Big || order == kCGBitmapByteOrder32Little)
+        && !wk_rasterContextHasOpenLayer(context);
+}
+
+extern CGImageRef CGWindowContextCreateImage(CGContextRef);
+
+// A window context 10.9's raster delegate draws into directly: its backing store, which CGWindowContextCreateImage reads.
+static bool wk_readsBackWindow(CGContextRef context)
+{
+    return context && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_WINDOW && !wk_rasterContextHasOpenLayer(context);
+}
+
+// A bitmap or window whose pixels carry alpha, which a transparency layer's draws land on and read-back recovers; a
+// borderless opaque window's backing store skips it.
+static bool wk_readsBackLayers(CGContextRef context)
+{
+    CGImageAlphaInfo alpha = kCGImageAlphaNone;
+    if (wk_readsBackBitmap(context))
+        alpha = (CGImageAlphaInfo)(CGBitmapContextGetBitmapInfo(context) & kCGBitmapAlphaInfoMask);
+    else if (wk_readsBackWindow(context)) {
+        CGImageRef backing = CGWindowContextCreateImage(context);
+        alpha = CGImageGetAlphaInfo(backing);
+        CGImageRelease(backing);
+    }
+    return alpha == kCGImageAlphaPremultipliedFirst || alpha == kCGImageAlphaPremultipliedLast;
+}
+
+// Whether a draw under `mode` into `context` composites through read-back.
+static bool wk_modeTakesReadBack(CGContextRef context, CGBlendMode mode)
+{
+    if (wk_drawsThroughCoreAnimationIOSurface(context))
+        return wk_blendModeTakesReadBack(mode);
+    return wk_isHSLBlendMode(mode) && (wk_readsBackBitmap(context) || wk_readsBackWindow(context));
+}
+
 // Records an offscreen layer about to open, and whether its result composites through read-back.
 static void wk_beginSurfaceLayer(CGContextRef context)
 {
-    if (!context || !wk_drawsThroughCoreAnimationIOSurface(context))
+    bool surface = context && wk_drawsThroughCoreAnimationIOSurface(context);
+    if (!surface && !wk_readsBackLayers(context))
         return;
     wk_blend_read_back readBack;
     CGStyleRef style = CGContextGetStyle(context);
     CGFloat alpha = CGContextGetAlpha(context);
-    if ((wk_blendModeTakesReadBack(CGContextGetBlendMode(context)) || (style && wk_dropsStyle(style))) && !wk_insideOffscreenSurfaceLayer(context)
+    if ((wk_modeTakesReadBack(context, CGContextGetBlendMode(context)) || (surface && style && wk_dropsStyle(style))) && !wk_insideOffscreenSurfaceLayer(context)
         && wk_beginReadBack(context, CGContextGetBlendMode(context), &readBack)) {
         // A focus ring's threshold reads its mask's alpha, so the mask stays opaque and the alpha applies to the ring.
-        bool focusRing = style && wk_isFocusRing(style);
+        bool focusRing = surface && style && wk_isFocusRing(style);
         if (focusRing)
             CGContextSetAlpha(context, 1);
         wk_pushSurfaceLayer(context, wk_layerOffscreenUnderReadBack, &readBack, focusRing ? alpha : 1);
@@ -3446,12 +3524,12 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayerWithRe
     WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, auxiliaryInfo);
 }
 
-// A transparency layer for WebKit's blending groups. On a QuartzCore-rendered context outside any offscreen layer it
-// opens none, so read-back reaches the draws inside; CGContextEndTransparencyLayer composites it. Anywhere else it is
-// an ordinary transparency layer.
+// A transparency layer for WebKit's blending groups. On a QuartzCore-rendered context, or a bitmap or window
+// wk_readsBackLayers takes, outside any offscreen layer, it opens none, so read-back reaches the draws inside;
+// CGContextEndTransparencyLayer composites it. Anywhere else it is an ordinary transparency layer.
 void wk_beginBlendingGroupLayer(CGContextRef context)
 {
-    if (context && wk_drawsThroughCoreAnimationIOSurface(context) && !wk_insideOffscreenSurfaceLayer(context)) {
+    if (context && (wk_drawsThroughCoreAnimationIOSurface(context) || wk_readsBackLayers(context)) && !wk_insideOffscreenSurfaceLayer(context)) {
         CGFloat alpha = CGContextGetAlpha(context);
         wk_blend_read_back readBack;
         if (wk_beginReadBack(context, CGContextGetBlendMode(context), &readBack)) {
@@ -3522,7 +3600,13 @@ extern int CGStyleGetType(CGStyleRef);
 extern const void *CGStyleGetData(CGStyleRef);
 extern CGColorRef CGStyleGetColor(CGStyleRef);
 extern CGStyleRef CGStyleCreateFocusRingWithColor(const void *, CGColorRef);
-enum { wk_styleTypeFocusRing = 2 };
+enum { wk_styleTypeShadow = 1, wk_styleTypeFocusRing = 2 };
+
+// CGShadowStyle, as Source/WebCore/PAL/pal/spi/cg/CoreGraphicsSPI.h declares it.
+typedef struct {
+    unsigned a;
+    CGFloat b, azimuth, c, height, radius, d;
+} wk_shadow_style;
 
 typedef struct {
     unsigned version;
@@ -3555,15 +3639,45 @@ static void wk_setFocusRingAtAlpha(CGContextRef bitmap, CGStyleRef style, CGFloa
     CGContextSetAlpha(bitmap, 1);
 }
 
-// Rows of `region` of the context's drawable: CA::CG::IOSurfaceContextDelegate keeps its IOSurfaceDrawable at offset
-// 0xd0, which keeps its surface at 0x8 and the drawable's origin and size in it at 0x20, in 10.9's QuartzCore.
+// Rows of `region` of the context's drawable: a bitmap context's own data, a window context's backing store, or the
+// surface of a QuartzCore-rendered one.
+// CA::CG::IOSurfaceContextDelegate keeps its IOSurfaceDrawable at offset 0xd0, which keeps its surface at 0x8 and the
+// drawable's origin and size in it at 0x20, in 10.9's QuartzCore.
 typedef struct {
     IOSurfaceRef surface;
+    uint8_t *bitmap;
+    bool window;
+    size_t rowBytes;
     int originX, originY, width, height;
 } wk_surface_drawable;
 
 static bool wk_contextDrawable(CGContextRef context, wk_surface_drawable *out)
 {
+    out->window = false;
+    if (WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_WINDOW) {
+        CGImageRef backing = wk_readsBackWindow(context) ? CGWindowContextCreateImage(context) : NULL;
+        if (!backing)
+            return false;
+        out->surface = NULL;
+        out->bitmap = NULL;
+        out->window = true;
+        out->rowBytes = 0;
+        out->originX = out->originY = 0;
+        out->width = (int)CGImageGetWidth(backing);
+        out->height = (int)CGImageGetHeight(backing);
+        CGImageRelease(backing);
+        return true;
+    }
+    if (WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_BITMAP) {
+        out->surface = NULL;
+        out->bitmap = (uint8_t *)CGBitmapContextGetData(context);
+        out->rowBytes = CGBitmapContextGetBytesPerRow(context);
+        out->originX = out->originY = 0;
+        out->width = (int)CGBitmapContextGetWidth(context);
+        out->height = (int)CGBitmapContextGetHeight(context);
+        return wk_readsBackBitmap(context);
+    }
+    out->bitmap = NULL;
     char *info = (char *)CGContextDelegateGetInfo(CGContextGetDelegate(context));
     char *drawable = *(char **)(info + 0xd0);
     out->surface = *(IOSurfaceRef *)(drawable + 0x8);
@@ -3579,15 +3693,33 @@ static uint8_t *wk_copyDrawableRegion(const wk_blend_read_back *readBack)
     wk_surface_drawable drawable;
     size_t width = (size_t)readBack->region.size.width, rows = (size_t)readBack->region.size.height;
     uint8_t *pixels = malloc(width * rows * 4);
-    if (!pixels || !wk_contextDrawable(readBack->context, &drawable) || WK_SYSTEM(IOSurfaceLock)(drawable.surface, kIOSurfaceLockReadOnly, NULL))
+    if (!pixels || !wk_contextDrawable(readBack->context, &drawable)
+        || (drawable.surface && WK_SYSTEM(IOSurfaceLock)(drawable.surface, kIOSurfaceLockReadOnly, NULL)))
         abort();
-    const uint8_t *base = (const uint8_t *)WK_SYSTEM(IOSurfaceGetBaseAddress)(drawable.surface);
-    size_t rowBytes = WK_SYSTEM(IOSurfaceGetBytesPerRow)(drawable.surface);
+    if (drawable.window) {
+        // The part of the backing the region covers, drawn as premultiplied BGRA rows.
+        CGImageRef backing = CGWindowContextCreateImage(readBack->context);
+        CGRect rect = CGRectMake(readBack->region.origin.x, drawable.height - CGRectGetMaxY(readBack->region), width, rows);
+        CGImageRef part = backing ? CGImageCreateWithImageInRect(backing, rect) : NULL;
+        CGContextRef bitmap = part ? CGBitmapContextCreate(pixels, width, rows, 8, width * 4, CGContextGetColorSpace(readBack->context), wk_gradientNarrowInfo) : NULL;
+        if (!bitmap)
+            abort();
+        CGContextSetBlendMode(bitmap, kCGBlendModeCopy);
+        CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+        WK_ORIGINAL(CGContextDrawImage)(bitmap, CGRectMake(0, 0, width, rows), part);
+        CGContextRelease(bitmap);
+        CGImageRelease(part);
+        CGImageRelease(backing);
+        return pixels;
+    }
+    const uint8_t *base = drawable.bitmap ? drawable.bitmap : (const uint8_t *)WK_SYSTEM(IOSurfaceGetBaseAddress)(drawable.surface);
+    size_t rowBytes = drawable.bitmap ? drawable.rowBytes : WK_SYSTEM(IOSurfaceGetBytesPerRow)(drawable.surface);
     size_t top = (size_t)drawable.originY + (size_t)(drawable.height - CGRectGetMaxY(readBack->region));
     size_t left = (size_t)drawable.originX + (size_t)readBack->region.origin.x;
     for (size_t row = 0; row < rows; row++)
         memcpy(pixels + row * width * 4, base + (top + row) * rowBytes + left * 4, width * 4);
-    WK_SYSTEM(IOSurfaceUnlock)(drawable.surface, kIOSurfaceLockReadOnly, NULL);
+    if (drawable.surface)
+        WK_SYSTEM(IOSurfaceUnlock)(drawable.surface, kIOSurfaceLockReadOnly, NULL);
     return pixels;
 }
 
@@ -3598,11 +3730,20 @@ static void wk_freeReadBackPixels(void *info, const void *data, size_t size)
     free((void *)data);
 }
 
+// The layout of a drawable's pixels: a bitmap context's own, or a surface's premultiplied BGRA.
+static CGBitmapInfo wk_drawableBitmapInfo(CGContextRef context)
+{
+    if (WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_BITMAP)
+        return CGBitmapContextGetBitmapInfo(context) & (kCGBitmapAlphaInfoMask | kCGBitmapByteOrderMask);
+    return wk_gradientNarrowInfo;
+}
+
 static CGImageRef wk_createReadBackImage(const wk_blend_read_back *readBack, uint8_t *pixels, CGColorSpaceRef space)
 {
     size_t width = (size_t)readBack->region.size.width, rows = (size_t)readBack->region.size.height;
     CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, pixels, width * rows * 4, wk_freeReadBackPixels);
-    CGImageRef image = provider ? CGImageCreate(width, rows, 8, 32, width * 4, space, wk_gradientNarrowInfo, provider, NULL, false, kCGRenderingIntentDefault) : NULL;
+    CGImageRef image = provider ? CGImageCreate(width, rows, 8, 32, width * 4, space, wk_drawableBitmapInfo(readBack->context), provider, NULL,
+        false, kCGRenderingIntentDefault) : NULL;
     if (!image)
         abort();
     CGDataProviderRelease(provider);
@@ -3637,6 +3778,8 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     readBack->target = context;
     readBack->mode = mode;
     readBack->region = region;
+    readBack->hsl = false;
+    readBack->shadow = NULL;
     CGContextFlush(context);
     readBack->destination = wk_copyDrawableRegion(readBack);
     CGPathRef path = CGContextIsPathEmpty(context) ? NULL : CGContextCopyPath(context);
@@ -3659,8 +3802,12 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     return true;
 }
 
-// `blends` composites over the destination in the bitmap; otherwise the bitmap holds the draw alone, which reaches the
-// context under the context's own blend mode.
+static bool wk_isHSLBlendMode(CGBlendMode);
+static void wk_compositeHSLImage(uint8_t *destination, CGBitmapInfo destinationInfo, CGImageRef, CGBlendMode, CGFloat alpha, CGStyleRef,
+    bool ringAtAlpha, CGColorSpaceRef, CGAffineTransform baseScale);
+
+// `blends` composites over the destination in the bitmap, or, under an HSL mode, after it, as wk_compositeHSLImage
+// composites; otherwise the bitmap holds the draw alone, which reaches the context under the context's own blend mode.
 static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blends, wk_blend_read_back *readBack)
 {
     wk_surface_drawable drawable;
@@ -3683,7 +3830,9 @@ static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blen
     readBack->destination = NULL;
     readBack->style = NULL;
     readBack->blends = blends;
-    if (blends) {
+    readBack->hsl = blends && wk_isHSLBlendMode(mode);
+    readBack->shadow = NULL;
+    if (blends && !readBack->hsl) {
         CGContextFlush(context);
         CGImageRef destination = wk_createReadBackImage(readBack, wk_copyDrawableRegion(readBack), space);
         CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
@@ -3708,11 +3857,17 @@ static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blen
     CGContextConcatCTM(bitmap, CGAffineTransformConcat(CGAffineTransformConcat(ctm, toBitmap), CGAffineTransformInvert(ctm)));
     CGContextSetBaseCTM(bitmap, CGAffineTransformConcat(CGContextGetBaseCTM(context), toBitmap));
     CGContextResetClip(bitmap);
-    if (!blends)
+    if (!blends || readBack->hsl)
         CGContextSetBlendMode(bitmap, kCGBlendModeNormal);
     CGStyleRef style = CGContextGetStyle(context);
-    if (wk_isFocusRing(style))
+    bool ring = wk_isFocusRing(style);
+    if (ring && wk_drawsThroughCoreAnimationIOSurface(context))
         wk_setFocusRingAtAlpha(bitmap, style, CGContextGetAlpha(context));
+    else if (readBack->hsl && style && !ring) {
+        // The shadow composites on its own ahead of the draw, from the draw's own pixels.
+        readBack->shadow = CFRetain(style);
+        CGContextSetStyle(bitmap, NULL);
+    }
     if (!CGContextIsPathEmpty(context)) {
         CGPathRef path = CGContextCopyPath(context);
         CGContextAddPath(bitmap, path);
@@ -3729,6 +3884,19 @@ static void wk_endStyledDraw(wk_blend_read_back *readBack)
     CGPoint textPosition = CGContextGetTextPosition(bitmap);
     CGContextSetTextPosition(context, textPosition.x, textPosition.y);
     CGImageRef image = CGBitmapContextCreateImage(bitmap);
+    if (readBack->hsl) {
+        CGColorSpaceRef space = CGContextGetColorSpace(context);
+        CGAffineTransform base = CGContextGetBaseCTM(context);
+        CGContextFlush(context);
+        uint8_t *composite = wk_copyDrawableRegion(readBack);
+        wk_compositeHSLImage(composite, wk_drawableBitmapInfo(context), image, readBack->mode, 1, (CGStyleRef)readBack->shadow, false, space,
+            CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d)));
+        CGImageRelease(image);
+        image = wk_createReadBackImage(readBack, composite, space);
+        if (readBack->shadow)
+            CFRelease(readBack->shadow);
+        readBack->shadow = NULL;
+    }
     CGContextSaveGState(context);
     CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
     CGContextSetStyle(context, NULL);
@@ -3749,15 +3917,244 @@ bool wk_blendReadBackBegin(CGContextRef context, wk_blend_read_back *readBack)
         return false;
     CGBlendMode mode = CGContextGetBlendMode(context);
     CGStyleRef style = CGContextGetStyle(context);
-    bool takesReadBack = wk_blendModeTakesReadBack(mode), dropsStyle = style && wk_dropsStyle(style);
-    if ((!takesReadBack && !dropsStyle) || !wk_drawsThroughCoreAnimationIOSurface(context))
+    bool surface = wk_drawsThroughCoreAnimationIOSurface(context);
+    bool takesReadBack = wk_modeTakesReadBack(context, mode), dropsStyle = surface && style && wk_dropsStyle(style);
+    if (!takesReadBack && !dropsStyle)
         return false;
     bool blends = (takesReadBack || (dropsStyle && mode != kCGBlendModeNormal)) && !wk_insideOffscreenSurfaceLayer(context);
     if (!blends && !dropsStyle)
         return false;
-    if (style)
+    if (style || !surface)
         return wk_beginStyledDraw(context, mode, blends, readBack);
     return wk_beginReadBack(context, mode, readBack);
+}
+
+// Hue, saturation, color and luminosity as Compositing and Blending Level 1 defines them, composited source over onto 8-bit
+// pixels of any 32-bit RGB layout from premultiplied BGRA ones. 10.9's CoreGraphics computes SetSat wrong for some orders
+// of a colour's components, so its hue and saturation land up to 199 levels away from the definition.
+static bool wk_isHSLBlendMode(CGBlendMode mode)
+{
+    return mode == kCGBlendModeHue || mode == kCGBlendModeSaturation || mode == kCGBlendModeColor || mode == kCGBlendModeLuminosity;
+}
+
+// Byte offsets of red, green, blue and alpha in a 32-bit pixel of the layout `info`, and whether its alpha is kept.
+static bool wk_pixelOffsets(CGBitmapInfo info, int offsets[4])
+{
+    CGImageAlphaInfo alpha = (CGImageAlphaInfo)(info & kCGBitmapAlphaInfoMask);
+    bool first = alpha == kCGImageAlphaPremultipliedFirst || alpha == kCGImageAlphaNoneSkipFirst || alpha == kCGImageAlphaFirst;
+    bool little = (info & kCGBitmapByteOrderMask) == kCGBitmapByteOrder32Little;
+    int alphaIndex = first ? 0 : 3, redIndex = first ? 1 : 0;
+    for (int i = 0; i < 3; i++)
+        offsets[i] = little ? 3 - (redIndex + i) : redIndex + i;
+    offsets[3] = little ? 3 - alphaIndex : alphaIndex;
+    return alpha == kCGImageAlphaPremultipliedFirst || alpha == kCGImageAlphaPremultipliedLast;
+}
+
+static inline __m128 wk_hslSelect(__m128 mask, __m128 a, __m128 b)
+{
+    return _mm_or_ps(_mm_and_ps(mask, a), _mm_andnot_ps(mask, b));
+}
+
+// 1 / x to about 23 bits: the reciprocal estimate and one Newton step.
+static inline __m128 wk_hslReciprocal(__m128 x)
+{
+    __m128 r = _mm_rcp_ps(x);
+    return _mm_mul_ps(r, _mm_sub_ps(_mm_set1_ps(2), _mm_mul_ps(x, r)));
+}
+
+static inline __m128 wk_hslLum(const __m128 c[3])
+{
+    return _mm_add_ps(_mm_add_ps(_mm_mul_ps(c[0], _mm_set1_ps(0.3f)), _mm_mul_ps(c[1], _mm_set1_ps(0.59f))), _mm_mul_ps(c[2], _mm_set1_ps(0.11f)));
+}
+
+static inline __m128 wk_hslMin(const __m128 c[3])
+{
+    return _mm_min_ps(_mm_min_ps(c[0], c[1]), c[2]);
+}
+
+static inline __m128 wk_hslMax(const __m128 c[3])
+{
+    return _mm_max_ps(_mm_max_ps(c[0], c[1]), c[2]);
+}
+
+// SetSat: the largest component becomes `sat`, the smallest 0, the middle one scaled between them, which is
+// (c - min) * sat / (max - min) for every component; all 0 when they are equal.
+static inline void wk_hslSetSat(__m128 c[3], __m128 sat)
+{
+    __m128 min = wk_hslMin(c), range = _mm_sub_ps(wk_hslMax(c), min);
+    __m128 scale = _mm_and_ps(_mm_cmpgt_ps(range, _mm_setzero_ps()), _mm_mul_ps(sat, wk_hslReciprocal(_mm_max_ps(range, _mm_set1_ps(1e-6f)))));
+    for (int i = 0; i < 3; i++)
+        c[i] = _mm_mul_ps(_mm_sub_ps(c[i], min), scale);
+}
+
+// SetLum, then ClipColor, whose two clips each scale c - l from the same lum, min and max.
+static inline void wk_hslSetLum(__m128 c[3], __m128 lum)
+{
+    __m128 d = _mm_sub_ps(lum, wk_hslLum(c));
+    for (int i = 0; i < 3; i++)
+        c[i] = _mm_add_ps(c[i], d);
+    __m128 l = wk_hslLum(c), n = wk_hslMin(c), x = wk_hslMax(c);
+    __m128 one = _mm_set1_ps(1), tiny = _mm_set1_ps(1e-6f);
+    __m128 low = wk_hslSelect(_mm_cmplt_ps(n, _mm_setzero_ps()), _mm_mul_ps(l, wk_hslReciprocal(_mm_max_ps(_mm_sub_ps(l, n), tiny))), one);
+    __m128 high = wk_hslSelect(_mm_cmpgt_ps(x, one), _mm_mul_ps(_mm_sub_ps(one, l), wk_hslReciprocal(_mm_max_ps(_mm_sub_ps(x, l), tiny))), one);
+    __m128 scale = _mm_mul_ps(low, high);
+    for (int i = 0; i < 3; i++)
+        c[i] = _mm_add_ps(l, _mm_mul_ps(_mm_sub_ps(c[i], l), scale));
+}
+
+static inline __m128 wk_hslChannel(__m128i pixels, int byteOffset)
+{
+    __m128i bytes = _mm_and_si128(_mm_srl_epi32(pixels, _mm_cvtsi32_si128(8 * byteOffset)), _mm_set1_epi32(0xff));
+    return _mm_mul_ps(_mm_cvtepi32_ps(bytes), _mm_set1_ps(1.0f / 255));
+}
+
+static inline __m128i wk_hslBytes(__m128 unit, int byteOffset)
+{
+    unit = _mm_min_ps(_mm_max_ps(unit, _mm_setzero_ps()), _mm_set1_ps(1));
+    __m128i bytes = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(unit, _mm_set1_ps(255)), _mm_set1_ps(0.5f)));
+    return _mm_sll_epi32(bytes, _mm_cvtsi32_si128(8 * byteOffset));
+}
+
+// Four pixels: `source` premultiplied BGRA, `destination` in the layout `offsets` and `destinationAlpha` give.
+static inline void wk_compositeHSLFour(uint8_t *destination, const uint8_t *source, const int offsets[4], bool destinationAlpha, CGBlendMode mode)
+{
+    __m128i sourcePixels = _mm_loadu_si128((const __m128i *)source), destinationPixels = _mm_loadu_si128((const __m128i *)destination);
+    __m128 sp[3] = { wk_hslChannel(sourcePixels, 2), wk_hslChannel(sourcePixels, 1), wk_hslChannel(sourcePixels, 0) };
+    __m128 bp[3] = { wk_hslChannel(destinationPixels, offsets[0]), wk_hslChannel(destinationPixels, offsets[1]), wk_hslChannel(destinationPixels, offsets[2]) };
+    __m128 as = wk_hslChannel(sourcePixels, 3), ab = destinationAlpha ? wk_hslChannel(destinationPixels, offsets[3]) : _mm_set1_ps(1);
+    __m128 zero = _mm_setzero_ps(), one = _mm_set1_ps(1), tiny = _mm_set1_ps(1e-6f);
+    __m128 sourceLive = _mm_cmpgt_ps(as, zero);
+    __m128 sourceScale = _mm_and_ps(sourceLive, wk_hslReciprocal(_mm_max_ps(as, tiny)));
+    __m128 backdropScale = _mm_and_ps(_mm_cmpgt_ps(ab, zero), wk_hslReciprocal(_mm_max_ps(ab, tiny)));
+    __m128 cs[3], cb[3], blended[3];
+    for (int i = 0; i < 3; i++) {
+        cs[i] = _mm_min_ps(_mm_mul_ps(sp[i], sourceScale), one);
+        cb[i] = _mm_min_ps(_mm_mul_ps(bp[i], backdropScale), one);
+    }
+    switch (mode) {
+    case kCGBlendModeHue:
+        memcpy(blended, cs, sizeof(blended));
+        wk_hslSetSat(blended, _mm_sub_ps(wk_hslMax(cb), wk_hslMin(cb)));
+        wk_hslSetLum(blended, wk_hslLum(cb));
+        break;
+    case kCGBlendModeSaturation:
+        memcpy(blended, cb, sizeof(blended));
+        wk_hslSetSat(blended, _mm_sub_ps(wk_hslMax(cs), wk_hslMin(cs)));
+        wk_hslSetLum(blended, wk_hslLum(cb));
+        break;
+    case kCGBlendModeColor:
+        memcpy(blended, cs, sizeof(blended));
+        wk_hslSetLum(blended, wk_hslLum(cb));
+        break;
+    default:
+        memcpy(blended, cb, sizeof(blended));
+        wk_hslSetLum(blended, wk_hslLum(cs));
+        break;
+    }
+    __m128 both = _mm_mul_ps(as, ab), notAs = _mm_sub_ps(one, as), notAb = _mm_sub_ps(one, ab);
+    __m128i out = _mm_setzero_si128();
+    for (int i = 0; i < 3; i++)
+        out = _mm_or_si128(out, wk_hslBytes(_mm_add_ps(_mm_add_ps(_mm_mul_ps(sp[i], notAb), _mm_mul_ps(bp[i], notAs)), _mm_mul_ps(both, blended[i])), offsets[i]));
+    if (destinationAlpha)
+        out = _mm_or_si128(out, wk_hslBytes(_mm_sub_ps(_mm_add_ps(as, ab), both), offsets[3]));
+    else
+        out = _mm_or_si128(out, _mm_and_si128(destinationPixels, _mm_sll_epi32(_mm_set1_epi32(0xff), _mm_cvtsi32_si128(8 * offsets[3]))));
+    // A pixel the source does not cover keeps the destination's.
+    __m128i covered = _mm_castps_si128(sourceLive);
+    out = _mm_or_si128(_mm_and_si128(covered, out), _mm_andnot_si128(covered, destinationPixels));
+    _mm_storeu_si128((__m128i *)destination, out);
+}
+
+// `source` is premultiplied BGRA; `destination` is in the layout `offsets` and `destinationAlpha` give.
+static void wk_compositeHSLRows(uint8_t *destination, const int offsets[4], bool destinationAlpha, const uint8_t *source, size_t pixels,
+    CGBlendMode mode)
+{
+    size_t whole = pixels & ~(size_t)3;
+    for (size_t p = 0; p < whole; p += 4)
+        wk_compositeHSLFour(destination + p * 4, source + p * 4, offsets, destinationAlpha, mode);
+    if (whole < pixels) {
+        uint8_t destinationTail[16] = { 0 }, sourceTail[16] = { 0 };
+        size_t bytes = (pixels - whole) * 4;
+        memcpy(destinationTail, destination + whole * 4, bytes);
+        memcpy(sourceTail, source + whole * 4, bytes);
+        wk_compositeHSLFour(destinationTail, sourceTail, offsets, destinationAlpha, mode);
+        memcpy(destination + whole * 4, destinationTail, bytes);
+    }
+}
+
+// `pixels`, premultiplied BGRA rows, as an image that does not own them.
+static CGImageRef wk_createImageOverPixels(const uint8_t *pixels, size_t width, size_t rows, CGColorSpaceRef space)
+{
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, pixels, width * rows * 4, NULL);
+    CGImageRef image = provider ? CGImageCreate(width, rows, 8, 32, width * 4, space, wk_gradientNarrowInfo, provider, NULL, false, kCGRenderingIntentDefault) : NULL;
+    if (!image)
+        abort();
+    CGDataProviderRelease(provider);
+    return image;
+}
+
+
+// The shadow `style` casts from `image`, alone, in a transparent bitmap of the image's size: the image lies past the
+// bitmap's edge and the shadow's offset carries the shadow back. A shadow style holds its offset as an azimuth 180
+// degrees from the offset's direction and a height equal to its length.
+static uint8_t *wk_copyShadowAlone(CGImageRef image, CGStyleRef style, CGColorSpaceRef space, CGAffineTransform baseScale)
+{
+    if (!style || CGStyleGetType(style) != wk_styleTypeShadow)
+        return NULL;
+    wk_shadow_style shadow = *(const wk_shadow_style *)CGStyleGetData(style);
+    double azimuth = (shadow.azimuth - 180) * M_PI / 180, height = shadow.height, radius = shadow.radius;
+    size_t width = CGImageGetWidth(image), rows = CGImageGetHeight(image);
+    uint8_t *pixels = calloc(width * rows, 4);
+    CGContextRef bitmap = pixels ? CGBitmapContextCreate(pixels, width, rows, 8, width * 4, space, wk_gradientNarrowInfo) : NULL;
+    if (!bitmap)
+        abort();
+    double away = 2 * (double)width + 4 * radius + 4 * height + 64;
+    CGContextSetBaseCTM(bitmap, baseScale);
+    CGContextSetShadowWithColor(bitmap, CGSizeMake(height * cos(azimuth) - away / baseScale.a, height * sin(azimuth)), radius, CGStyleGetColor(style));
+    CGContextConcatCTM(bitmap, CGAffineTransformInvert(CGContextGetCTM(bitmap)));
+    CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+    WK_ORIGINAL(CGContextDrawImage)(bitmap, CGRectMake(away, 0, width, rows), image);
+    CGContextRelease(bitmap);
+    return pixels;
+}
+
+// `destination`, rows of `image`'s size in the layout `destinationInfo`, with `image` composited onto it under `mode`, one
+// of the HSL modes, at `alpha`: under a shadow style, the shadow first and then the image, as CoreGraphics composites a
+// styled draw; under any other style, the image and its style together, a focus ring at `alpha` too when `ringAtAlpha`,
+// as a surface draws one.
+static void wk_compositeHSLImage(uint8_t *destination, CGBitmapInfo destinationInfo, CGImageRef image, CGBlendMode mode, CGFloat alpha,
+    CGStyleRef style, bool ringAtAlpha, CGColorSpaceRef space, CGAffineTransform baseScale)
+{
+    int offsets[4];
+    bool destinationAlpha = wk_pixelOffsets(destinationInfo, offsets);
+    size_t width = CGImageGetWidth(image), rows = CGImageGetHeight(image);
+    uint8_t *source = calloc(width * rows, 4);
+    CGContextRef bitmap = source ? CGBitmapContextCreate(source, width, rows, 8, width * 4, space, wk_gradientNarrowInfo) : NULL;
+    if (!bitmap)
+        abort();
+    CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+    CGContextSetAlpha(bitmap, alpha);
+    uint8_t *shadow = NULL;
+    if (style) {
+        CGContextSetBaseCTM(bitmap, baseScale);
+        if (wk_isFocusRing(style) && ringAtAlpha)
+            wk_setFocusRingAtAlpha(bitmap, style, alpha);
+        else if (CGStyleGetType(style) != wk_styleTypeShadow)
+            CGContextSetStyle(bitmap, style);
+    }
+    WK_ORIGINAL(CGContextDrawImage)(bitmap, CGRectMake(0, 0, width, rows), image);
+    CGContextRelease(bitmap);
+    if (style && !wk_isFocusRing(style)) {
+        CGImageRef sourceImage = wk_createImageOverPixels(source, width, rows, space);
+        shadow = wk_copyShadowAlone(sourceImage, style, space, baseScale);
+        CGImageRelease(sourceImage);
+    }
+    if (shadow) {
+        wk_compositeHSLRows(destination, offsets, destinationAlpha, shadow, width * rows, mode);
+        free(shadow);
+    }
+    wk_compositeHSLRows(destination, offsets, destinationAlpha, source, width * rows, mode);
+    free(source);
 }
 
 static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
@@ -3771,25 +4168,38 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     uint8_t *source = wk_copyDrawableRegion(readBack);
     CGImageRef destinationImage = wk_createReadBackImage(readBack, readBack->destination, space);
     CGImageRef sourceImage = wk_createReadBackImage(readBack, source, space);
-    CGContextRef bitmap = CGBitmapContextCreate(NULL, width, rows, 8, width * 4, space, wk_gradientNarrowInfo);
-    if (!bitmap)
-        abort();
-    CGRect all = CGRectMake(0, 0, width, rows);
-    CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
-    WK_ORIGINAL(CGContextDrawImage)(bitmap, all, destinationImage);
-    CGContextSetBlendMode(bitmap, readBack->mode);
-    CGContextSetAlpha(bitmap, alpha);
-    if (readBack->style) {
-        // CoreGraphics measures a style in base space.
-        CGAffineTransform base = CGContextGetBaseCTM(context);
-        CGContextSetBaseCTM(bitmap, CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d)));
-        if (wk_isFocusRing((CGStyleRef)readBack->style))
-            wk_setFocusRingAtAlpha(bitmap, (CGStyleRef)readBack->style, alpha);
-        else
-            CGContextSetStyle(bitmap, (CGStyleRef)readBack->style);
+    // CoreGraphics measures a style in base space.
+    CGAffineTransform base = CGContextGetBaseCTM(context);
+    CGAffineTransform baseScale = CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d));
+    CGImageRef result;
+    CGContextRef bitmap = NULL;
+    if (wk_isHSLBlendMode(readBack->mode)) {
+        uint8_t *composite = malloc(width * rows * 4);
+        if (!composite)
+            abort();
+        memcpy(composite, readBack->destination, width * rows * 4);
+        wk_compositeHSLImage(composite, wk_drawableBitmapInfo(context), sourceImage, readBack->mode, alpha, (CGStyleRef)readBack->style,
+            wk_drawsThroughCoreAnimationIOSurface(context), space, baseScale);
+        result = wk_createReadBackImage(readBack, composite, space);
+    } else {
+        bitmap = CGBitmapContextCreate(NULL, width, rows, 8, width * 4, space, wk_gradientNarrowInfo);
+        if (!bitmap)
+            abort();
+        CGRect all = CGRectMake(0, 0, width, rows);
+        CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+        WK_ORIGINAL(CGContextDrawImage)(bitmap, all, destinationImage);
+        CGContextSetBlendMode(bitmap, readBack->mode);
+        CGContextSetAlpha(bitmap, alpha);
+        if (readBack->style) {
+            CGContextSetBaseCTM(bitmap, baseScale);
+            if (wk_isFocusRing((CGStyleRef)readBack->style) && wk_drawsThroughCoreAnimationIOSurface(context))
+                wk_setFocusRingAtAlpha(bitmap, (CGStyleRef)readBack->style, alpha);
+            else
+                CGContextSetStyle(bitmap, (CGStyleRef)readBack->style);
+        }
+        WK_ORIGINAL(CGContextDrawImage)(bitmap, all, sourceImage);
+        result = CGBitmapContextCreateImage(bitmap);
     }
-    WK_ORIGINAL(CGContextDrawImage)(bitmap, all, sourceImage);
-    CGImageRef result = CGBitmapContextCreateImage(bitmap);
     wk_beginUnclippedDeviceDraw(context, kCGBlendModeCopy);
     CGContextDrawImage(context, readBack->region, readBack->style ? destinationImage : result);
     CGContextRestoreGState(context);
@@ -3807,7 +4217,8 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     }
     CGContextSetBlendMode(context, readBack->mode);
     CGImageRelease(result);
-    CGContextRelease(bitmap);
+    if (bitmap)
+        CGContextRelease(bitmap);
     CGImageRelease(sourceImage);
     CGImageRelease(destinationImage);
 }

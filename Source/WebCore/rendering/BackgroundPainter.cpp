@@ -34,10 +34,7 @@
 #include "FloatRoundedRect.h"
 #include "GeometryUtilities.h"
 #include "GraphicsContext.h"
-#if USE(APPKIT)
-#include "GraphicsContextCG.h" // AQUAWEBKIT: blend modes layers cannot composite, below.
 #include "GraphicsLayer.h" // AQUAWEBKIT: blend modes layers cannot composite, below.
-#endif // AQUAWEBKIT: closes the includes above.
 #include "InlineIteratorInlineBox.h"
 #include "PaintInfo.h"
 #include "RenderBoxInlines.h"
@@ -172,25 +169,16 @@ template<typename Layers> void BackgroundPainter::paintFillLayersImpl(const Colo
     if (shouldDrawBackgroundInSeparateBuffer) {
         paintFillLayerImpl(color, FillLayerToPaint<typename Layers::value_type> { .layer = fillLayers.usedLast(), .isLast = true, .zoom = zoom }, rect, bleedAvoidance, { }, { }, op, backgroundObject, BaseBackgroundColorOnly);
         baseBgColorUsage = BaseBackgroundColorSkip;
-#if USE(APPKIT)
-        // AQUAWEBKIT: 10.9's QuartzCore composites some blend modes as normal, so fill layers of those modes blend with
-        // one another in a CG bitmap, which takes the transparency layer's place and reaches the context the same way.
+        // AQUAWEBKIT: fill layers of a blend mode layers cannot composite blend with one another in a blending group,
+        // which the polyfill layer's read-back reaches; see GraphicsContext.h.
         bool hasModeLayersCannotComposite = false;
         for (auto& layer : fillLayers.usedValues())
             hasModeLayersCannotComposite |= !GraphicsLayer::supportsBlendMode(layer.blendMode());
-        if (hasModeLayersCannotComposite && context.hasPlatformContext() && wk_drawsThroughCoreAnimationIOSurface(context.platformContext())) {
-            __block PaintInfo bitmapPaintInfo = m_paintInfo;
-            wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef bitmap) {
-                GraphicsContextCG bitmapContext(bitmap);
-                bitmapPaintInfo.setContext(bitmapContext);
-                BackgroundPainter bitmapPainter { m_renderer, bitmapPaintInfo };
-                for (auto& layer : fillLayers.usedValues() | std::views::reverse)
-                    bitmapPainter.paintFillLayerImpl(color, FillLayerToPaint<typename Layers::value_type> { .layer = layer, .isLast = &layer == &fillLayers.usedLast(), .zoom = zoom }, rect, bleedAvoidance, { }, { }, op, backgroundObject, BaseBackgroundColorSkip);
-            });
-            return;
-        }
-#endif // AQUAWEBKIT: closes the bitmap route above.
-        context.beginTransparencyLayer(1);
+        // context.beginTransparencyLayer(1);
+        if (hasModeLayersCannotComposite)
+            context.beginBlendingGroupTransparencyLayer(1);
+        else
+            context.beginTransparencyLayer(1);
     }
 
     for (auto& layer : fillLayers.usedValues() | std::views::reverse)

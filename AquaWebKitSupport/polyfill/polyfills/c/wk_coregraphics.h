@@ -23,6 +23,8 @@ typedef struct {
     bool blends;
     CGPoint textPosition;
     CGTextDrawingMode textMode;
+    bool hsl;
+    const void *shadow;
 } wk_blend_read_back;
 bool wk_blendReadBackBegin(CGContextRef, wk_blend_read_back *);
 void wk_blendReadBackEnd(wk_blend_read_back *);

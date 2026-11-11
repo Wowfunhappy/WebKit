@@ -100,10 +100,9 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 #endif
 
 #if USE(APPKIT)
-// AQUAWEBKIT: BackgroundPainter's fill layers of blend modes QuartzCore does not implement blend through here, as does a
-// cell's focus ring under the software renderer, whose AppKit-drawn mask the polyfill layer cannot carry past the
-// drawable: it hands `draw` a bitmap-backed stand-in for the part of `destination` its clip can show, and composites
-// those pixels back one for one.
+// AQUAWEBKIT: a cell's focus ring under the software renderer draws through here, its AppKit-drawn mask being one the
+// polyfill layer cannot carry past the drawable: it hands `draw` a bitmap-backed stand-in for the part of `destination`
+// its clip can show, and composites those pixels back one for one.
 void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
 {
     CGRect clip = CGContextGetClipBoundingBox(destination);

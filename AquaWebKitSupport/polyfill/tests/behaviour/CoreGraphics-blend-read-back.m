@@ -10,7 +10,11 @@
 // CG's HSL composites turn one level of source into as many as 32. Text the cleared surface draws without font smoothing is compared with
 // smoothing off at its partly covered pixels. A PDF page reads back. A blending-group layer holds blended draws, nests, and takes
 // the group's alpha. A fill under a shadow composites shadow then source. A current path survives and the blend mode is
-// restored. QuartzCore's own hue draw equals its normal draw, which is the premise.
+// restored. QuartzCore's own hue draw equals its normal draw, which is the premise. Every HSL result is also checked
+// against the definition (Compositing and Blending Level 1) applied here to what 10.9 draws under normal blending: the
+// source, and a shadow alone, drawn past the bitmap's edge with the shadow's offset carrying it back. That shadow-alone
+// decomposition is itself checked against 10.9's own styled draw under multiply, at scales 1 and 2 and in another
+// colour space.
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <IOSurface/IOSurface.h>
@@ -253,8 +257,140 @@ static void drawLinearAsImage(CGContextRef c)
     CGContextRelease(band);
 }
 
-// The largest difference, away from edges, of `result` from CG's composite of the source a normal draw leaves in a
-// surface over the destination the surface holds.
+
+// The definition's composite, source over, of premultiplied BGRA `source` onto `destination`, in double precision.
+static double definitionLum(const double c[3]) { return 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; }
+
+static void definitionSetLum(double c[3], double l)
+{
+    double d = l - definitionLum(c);
+    for (int i = 0; i < 3; i++)
+        c[i] += d;
+    double m = definitionLum(c), n = fmin(c[0], fmin(c[1], c[2])), x = fmax(c[0], fmax(c[1], c[2]));
+    if (n < 0) {
+        for (int i = 0; i < 3; i++)
+            c[i] = m + (c[i] - m) * m / (m - n);
+    }
+    if (x > 1) {
+        for (int i = 0; i < 3; i++)
+            c[i] = m + (c[i] - m) * (1 - m) / (x - m);
+    }
+}
+
+static double definitionSat(const double c[3]) { return fmax(c[0], fmax(c[1], c[2])) - fmin(c[0], fmin(c[1], c[2])); }
+
+static void definitionSetSat(double c[3], double s)
+{
+    int max = 0, min = 0;
+    for (int i = 1; i < 3; i++) {
+        if (c[i] > c[max])
+            max = i;
+        if (c[i] < c[min])
+            min = i;
+    }
+    if (c[max] <= c[min]) {
+        c[0] = c[1] = c[2] = 0;
+        return;
+    }
+    int mid = 3 - max - min;
+    c[mid] = (c[mid] - c[min]) * s / (c[max] - c[min]);
+    c[max] = s;
+    c[min] = 0;
+}
+
+static void definitionComposite(unsigned char *destination, const unsigned char *source, CGBlendMode mode)
+{
+    for (size_t i = 0; i < kSide * kSide; i++, destination += 4, source += 4) {
+        double as = source[3] / 255.0, ab = destination[3] / 255.0;
+        if (as <= 0)
+            continue;
+        double cs[3], cb[3], b[3];
+        for (int k = 0; k < 3; k++) {
+            cs[k] = fmin(source[2 - k] / 255.0 / as, 1);
+            cb[k] = ab > 0 ? fmin(destination[2 - k] / 255.0 / ab, 1) : 0;
+        }
+        switch (mode) {
+        case kCGBlendModeHue:
+            memcpy(b, cs, sizeof(b));
+            definitionSetSat(b, definitionSat(cb));
+            definitionSetLum(b, definitionLum(cb));
+            break;
+        case kCGBlendModeSaturation:
+            memcpy(b, cb, sizeof(b));
+            definitionSetSat(b, definitionSat(cs));
+            definitionSetLum(b, definitionLum(cb));
+            break;
+        case kCGBlendModeColor:
+            memcpy(b, cs, sizeof(b));
+            definitionSetLum(b, definitionLum(cb));
+            break;
+        default:
+            memcpy(b, cb, sizeof(b));
+            definitionSetLum(b, definitionLum(cs));
+            break;
+        }
+        for (int k = 0; k < 3; k++) {
+            double co = source[2 - k] / 255.0 * (1 - ab) + destination[2 - k] / 255.0 * (1 - as) + as * ab * b[k];
+            destination[2 - k] = (unsigned char)lround(fmin(fmax(co, 0), 1) * 255);
+        }
+        destination[3] = (unsigned char)lround(fmin(as + ab - as * ab, 1) * 255);
+    }
+}
+
+// What `draw` leaves under normal blending in a transparent BGRA bitmap at base scale `scale`, or in `space`: 10.9's own
+// drawing, since no HSL mode is involved.
+static void normalPixelsIn(unsigned char *pixels, CGFloat scale, CGColorSpaceRef space, void (^draw)(CGContextRef))
+{
+    memset(pixels, 0, kSide * kSide * 4);
+    CGContextRef c = CGBitmapContextCreate(pixels, kSide, kSide, 8, kSide * 4, space, kBGRA);
+    CGContextSetBaseCTM(c, CGAffineTransformMakeScale(scale, scale));
+    draw(c);
+    CGContextRelease(c);
+}
+
+static void normalPixels(unsigned char *pixels, void (^draw)(CGContextRef))
+{
+    normalPixelsIn(pixels, 1, gSRGB, draw);
+}
+
+// The shadow `draw` casts, alone: `draw` happens far past the bitmap's right edge and the shadow's offset carries the
+// shadow back, under 10.9's own drawing.
+static void shadowAlonePixels(unsigned char *pixels, CGFloat scale, CGColorSpaceRef space, CGSize offset, CGFloat blur, CGColorRef color,
+    void (^draw)(CGContextRef))
+{
+    const CGFloat away = 4 * kSide;
+    normalPixelsIn(pixels, scale, space, ^(CGContextRef c) {
+        // A shadow's offset is measured in base space, so it carries a draw `away` device units back from `away / scale`.
+        CGContextSetShadowWithColor(c, CGSizeMake(offset.width - away / scale, offset.height), blur, color);
+        CGContextTranslateCTM(c, away, 0);
+        draw(c);
+    });
+}
+
+// The definition's composite of what `draw` leaves under normal blending, its shadow alone first when `color` is set, onto
+// `destination`.
+static void definitionScene(unsigned char *destination, CGBlendMode mode, CGFloat scale, CGSize offset, CGFloat blur, CGColorRef color,
+    void (^draw)(CGContextRef))
+{
+    static unsigned char layer[kSide * kSide * 4];
+    if (color) {
+        shadowAlonePixels(layer, scale, gSRGB, offset, blur, color, draw);
+        definitionComposite(destination, layer, mode);
+    }
+    normalPixelsIn(layer, scale, gSRGB, draw);
+    definitionComposite(destination, layer, mode);
+}
+
+static int largestDifference(const unsigned char *a, const unsigned char *b)
+{
+    int largest = 0;
+    for (size_t i = 0; i < kSide * kSide * 4; i++)
+        largest = MAX(largest, abs(a[i] - b[i]));
+    return largest;
+}
+
+// The largest difference, away from edges, of `result` from the definition's composite of the source a normal draw
+// leaves in a surface over the destination the surface holds.
 static int largestFromSurfaceSourceComposite(const unsigned char *result, const unsigned char *normalS, const unsigned char *normalB, const unsigned char *excluded, CGBlendMode mode, CGFloat alpha, int primitiveIndex)
 {
     static unsigned char sourcePixels[kSide * kSide * 4];
@@ -281,13 +417,9 @@ static int largestFromSurfaceSourceComposite(const unsigned char *result, const 
     readTarget(&destination, destinationPixels);
     CGContextRef destinationBitmap = CGBitmapContextCreate(destinationPixels, kSide, kSide, 8, kSide * 4, gSRGB, kBGRA);
     CGImageRef destinationImage = CGBitmapContextCreateImage(destinationBitmap);
-    Target composite = createTarget(false);
-    CGContextSetInterpolationQuality(composite.context, kCGInterpolationNone);
-    CGContextDrawImage(composite.context, CGRectMake(0, 0, kSide, kSide), destinationImage);
-    CGContextSetBlendMode(composite.context, mode);
-    CGContextDrawImage(composite.context, CGRectMake(0, 0, kSide, kSide), sourceImage);
     static unsigned char compositePixels[kSide * kSide * 4];
-    readTarget(&composite, compositePixels);
+    memcpy(compositePixels, destinationPixels, sizeof(compositePixels));
+    definitionComposite(compositePixels, sourcePixels, mode);
     int largest = largestAwayFromEdges(result, compositePixels, normalS, normalB, excluded);
     CGImageRelease(destinationImage);
     CGContextRelease(destinationBitmap);
@@ -295,7 +427,6 @@ static int largestFromSurfaceSourceComposite(const unsigned char *result, const 
     CFRelease(destination.surface);
     CGImageRelease(sourceImage);
     CGContextRelease(sourceBitmap);
-    CGContextRelease(composite.context);
     CGContextRelease(source.context);
     CFRelease(source.surface);
     return largest;
@@ -478,10 +609,31 @@ int main(void)
                         if (!opaque) {
                             int fromComposite = largestFromSurfaceSourceComposite(surfacePixels, normalSurface, normalBitmap, p == 5 ? excluded : NULL, kModes[m].mode, alpha, p);
                             char compositeWhat[160];
-                            snprintf(compositeWhat, sizeof(compositeWhat), "translucent %s %s, destination alpha %.1f: within 2 of CG's composite of the surface's source (largest %d)", kModes[m].name, kNames[p], alpha, fromComposite);
+                            snprintf(compositeWhat, sizeof(compositeWhat), "translucent %s %s, destination alpha %.1f: within 2 of the definition's composite of the surface's source (largest %d)", kModes[m].name, kNames[p], alpha, fromComposite);
                             check(fromComposite <= 2, compositeWhat);
                         }
+                        static unsigned char definitionPixels[kSide * kSide * 4];
+                        Primitive draw = primitive(p);
+                        normalPixels(definitionPixels, ^(CGContextRef c) { prepare(c, alpha); });
+                        definitionScene(definitionPixels, kModes[m].mode, 1, CGSizeZero, 0, NULL, ^(CGContextRef c) {
+                            CGContextTranslateCTM(c, 128, 128);
+                            CGContextRotateCTM(c, 0.3);
+                            CGContextTranslateCTM(c, -128, -128);
+                            CGContextClipToRect(c, CGRectMake(16, 16, 224, 224));
+                            if (!gOpaque)
+                                CGContextSetAlpha(c, 0.8);
+                            draw(c);
+                        });
+                        int bitmapFromDefinition = largestAwayFromEdges(bitmapPixels, definitionPixels, normalBitmap, normalBitmap, p == 5 ? excluded : NULL);
+                        int surfaceFromDefinition = largestAwayFromEdges(surfacePixels, definitionPixels, normalSurface, normalBitmap, p == 5 ? excluded : NULL);
                         char what[140];
+                        snprintf(what, sizeof(what), "%s %s %s, destination alpha %.1f, bitmap: within 2 of the definition (largest %d)", opaque ? "opaque" : "translucent", kModes[m].name, kNames[p], alpha, bitmapFromDefinition);
+                        check(bitmapFromDefinition <= 2, what);
+                        snprintf(what, sizeof(what), "%s %s %s, destination alpha %.1f, surface: within %d of the definition (largest %d)", opaque ? "opaque" : "translucent", kModes[m].name, kNames[p], alpha, allowed, surfaceFromDefinition);
+                        if (opaque || wk_coreAnimationTextureLimit())
+                            check(surfaceFromDefinition <= allowed, what);
+                        else
+                            printf("    translucent %s %s, destination alpha %.1f: largest %d from the definition\n", kModes[m].name, kNames[p], alpha, surfaceFromDefinition);
                         snprintf(what, sizeof(what), "%s %s %s, destination alpha %.1f: within %d of the bitmap (largest %d)", opaque ? "opaque" : "translucent", kModes[m].name, kNames[p], alpha, allowed, largest);
                         if (opaque || wk_coreAnimationTextureLimit())
                             check(largest <= allowed, what);
@@ -550,12 +702,38 @@ int main(void)
                     }
                     readTarget(&surface, surfacePixels);
                     readTarget(&bitmap, bitmapPixels);
-                    int largest = 0;
-                    for (size_t i = 0; i < kSide * kSide * 4; i++)
-                        largest = MAX(largest, abs(surfacePixels[i] - bitmapPixels[i]));
+                    int largest = largestDifference(surfacePixels, bitmapPixels);
                     char what[140];
                     snprintf(what, sizeof(what), "luminosity in a blending-group layer%s%s: within 2 of the bitmap everywhere (largest %d)", nested ? ", nested" : "", groupAlpha ? ", group alpha 0.6" : "", largest);
                     check(largest <= 2, what);
+
+                    // The definition: each group's contents under normal blending, the luminosity fill composited onto the
+                    // innermost, the groups then composited normally.
+                    static unsigned char destinationPixels[kSide * kSide * 4], groupPixels[kSide * kSide * 4], innerPixels[kSide * kSide * 4], fillPixels[kSide * kSide * 4];
+                    normalPixels(destinationPixels, ^(CGContextRef c) { prepare(c, 1); });
+                    normalPixels(groupPixels, ^(CGContextRef c) { CGContextSetRGBFillColor(c, 0.9, 0.8, 0.1, 1); CGContextFillRect(c, CGRectMake(32, 32, 192, 192)); });
+                    normalPixels(innerPixels, ^(CGContextRef c) { CGContextSetRGBFillColor(c, 0.1, 0.2, 0.9, 1); CGContextFillRect(c, CGRectMake(48, 48, 160, 160)); });
+                    normalPixels(fillPixels, ^(CGContextRef c) { CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1); CGContextFillRect(c, kBox); });
+                    definitionComposite(nested ? innerPixels : groupPixels, fillPixels, kCGBlendModeLuminosity);
+                    CGContextRef group = CGBitmapContextCreate(groupPixels, kSide, kSide, 8, kSide * 4, gSRGB, kBGRA);
+                    if (nested) {
+                        CGContextRef inner = CGBitmapContextCreate(innerPixels, kSide, kSide, 8, kSide * 4, gSRGB, kBGRA);
+                        CGImageRef innerImage = CGBitmapContextCreateImage(inner);
+                        CGContextDrawImage(group, CGRectMake(0, 0, kSide, kSide), innerImage);
+                        CGImageRelease(innerImage);
+                        CGContextRelease(inner);
+                    }
+                    CGImageRef groupImage = CGBitmapContextCreateImage(group);
+                    CGContextRef destination = CGBitmapContextCreate(destinationPixels, kSide, kSide, 8, kSide * 4, gSRGB, kBGRA);
+                    CGContextSetAlpha(destination, groupAlpha ? 0.6 : 1);
+                    CGContextDrawImage(destination, CGRectMake(0, 0, kSide, kSide), groupImage);
+                    CGImageRelease(groupImage);
+                    CGContextRelease(group);
+                    CGContextRelease(destination);
+                    int surfaceFromDefinition = largestDifference(surfacePixels, destinationPixels);
+                    int bitmapFromDefinition = largestDifference(bitmapPixels, destinationPixels);
+                    snprintf(what, sizeof(what), "luminosity in a blending-group layer%s%s: surface and bitmap within 2 of the definition (largest %d, %d)", nested ? ", nested" : "", groupAlpha ? ", group alpha 0.6" : "", surfaceFromDefinition, bitmapFromDefinition);
+                    check(surfaceFromDefinition <= 2 && bitmapFromDefinition <= 2, what);
                     CGContextRelease(surface.context);
                     CGContextRelease(bitmap.context);
                     CFRelease(surface.surface);
@@ -577,16 +755,69 @@ int main(void)
             }
             readTarget(&surface, surfacePixels);
             readTarget(&bitmap, bitmapPixels);
-            int largest = 0;
-            for (size_t i = 0; i < kSide * kSide * 4; i++)
-                largest = MAX(largest, abs(surfacePixels[i] - bitmapPixels[i]));
+            int largest = largestDifference(surfacePixels, bitmapPixels);
             char what[120];
             snprintf(what, sizeof(what), "%s fill under a shadow: within 3 of the bitmap everywhere (largest %d)", kModes[m].name, largest);
             check(largest <= 3, what);
+            static unsigned char definitionPixels[kSide * kSide * 4];
+            normalPixels(definitionPixels, ^(CGContextRef c) { prepare(c, 1); });
+            definitionScene(definitionPixels, kModes[m].mode, 1, CGSizeMake(16, -16), 4, shadow, ^(CGContextRef c) {
+                CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1);
+                CGContextFillRect(c, CGRectMake(48, 72, 120, 120));
+            });
+            int surfaceFromDefinition = largestDifference(surfacePixels, definitionPixels), bitmapFromDefinition = largestDifference(bitmapPixels, definitionPixels);
+            snprintf(what, sizeof(what), "%s fill under a shadow: surface and bitmap within 3 of the definition (largest %d, %d)", kModes[m].name, surfaceFromDefinition, bitmapFromDefinition);
+            check(surfaceFromDefinition <= 3 && bitmapFromDefinition <= 3, what);
             CGColorRelease(shadow);
             CGContextRelease(surface.context);
             CGContextRelease(bitmap.context);
             CFRelease(surface.surface);
+        }
+
+        // The shadow-alone decomposition the definition checks use, against 10.9's own styled draw under multiply: the shadow
+        // alone and then the source, each composited under the mode, at scales 1 and 2 and in another colour space.
+        {
+            CGColorSpaceRef adobe = CGColorSpaceCreateWithName(kCGColorSpaceAdobeRGB1998);
+            CGColorRef shadow = CGColorCreateGenericRGB(0.2, 0, 0.4, 0.8);
+            for (int variant = 0; variant < 3; variant++) {
+                CGFloat scale = variant == 1 ? 2 : 1;
+                CGColorSpaceRef space = variant == 2 ? adobe : gSRGB;
+                void (^shape)(CGContextRef) = ^(CGContextRef c) {
+                    CGContextSetRGBFillColor(c, 0.1, 0.5, 0.9, 0.9);
+                    CGContextFillEllipseInRect(c, CGRectMake(40, 40, 90, 70));
+                };
+                static unsigned char styled[kSide * kSide * 4], decomposed[kSide * kSide * 4], layer[kSide * kSide * 4];
+                normalPixelsIn(styled, scale, space, ^(CGContextRef c) {
+                    prepare(c, 1);
+                    CGContextSetBlendMode(c, kCGBlendModeMultiply);
+                    CGContextSetShadowWithColor(c, CGSizeMake(6, -6), 5, shadow);
+                    shape(c);
+                });
+                shadowAlonePixels(layer, scale, space, CGSizeMake(6, -6), 5, shadow, shape);
+                CGContextRef shadowBitmap = CGBitmapContextCreate(layer, kSide, kSide, 8, kSide * 4, space, kBGRA);
+                CGImageRef shadowImage = CGBitmapContextCreateImage(shadowBitmap);
+                normalPixelsIn(layer, scale, space, shape);
+                CGContextRef sourceBitmap = CGBitmapContextCreate(layer, kSide, kSide, 8, kSide * 4, space, kBGRA);
+                CGImageRef sourceImage = CGBitmapContextCreateImage(sourceBitmap);
+                normalPixelsIn(decomposed, 1, space, ^(CGContextRef c) {
+                    prepare(c, 1);
+                    CGContextSetBlendMode(c, kCGBlendModeMultiply);
+                    CGContextSetInterpolationQuality(c, kCGInterpolationNone);
+                    CGContextDrawImage(c, CGRectMake(0, 0, kSide, kSide), shadowImage);
+                    CGContextDrawImage(c, CGRectMake(0, 0, kSide, kSide), sourceImage);
+                });
+                int largest = largestDifference(styled, decomposed);
+                char what[140];
+                snprintf(what, sizeof(what), "the shadow alone then the source, under multiply%s: within 2 of 10.9's styled draw (largest %d)",
+                    variant == 1 ? ", scale 2" : variant == 2 ? ", Adobe RGB" : "", largest);
+                check(largest <= 2, what);
+                CGImageRelease(shadowImage);
+                CGImageRelease(sourceImage);
+                CGContextRelease(shadowBitmap);
+                CGContextRelease(sourceBitmap);
+            }
+            CGColorRelease(shadow);
+            CGColorSpaceRelease(adobe);
         }
 
         // QuartzCore's own hue is its normal: the system draw through a bitmap comparison would not show it, so the
@@ -661,6 +892,12 @@ int main(void)
             char what[120];
             snprintf(what, sizeof(what), "a PDF page under luminosity: within 2 of the bitmap everywhere (largest %d)", largest);
             check(largest <= 2, what);
+            static unsigned char definitionPixels[kSide * kSide * 4];
+            normalPixels(definitionPixels, ^(CGContextRef c) { prepare(c, 1); });
+            definitionScene(definitionPixels, kCGBlendModeLuminosity, 1, CGSizeZero, 0, NULL, ^(CGContextRef c) { CGContextDrawPDFPage(c, page); });
+            int surfaceFromDefinition = largestDifference(surfacePixels, definitionPixels), bitmapFromDefinition = largestDifference(bitmapPixels, definitionPixels);
+            snprintf(what, sizeof(what), "a PDF page under luminosity: surface and bitmap within 2 of the definition (largest %d, %d)", surfaceFromDefinition, bitmapFromDefinition);
+            check(surfaceFromDefinition <= 2 && bitmapFromDefinition <= 2, what);
             CGContextRelease(surface.context);
             CGContextRelease(bitmap.context);
             CFRelease(surface.surface);
@@ -691,6 +928,30 @@ int main(void)
                     char what[140];
                     snprintf(what, sizeof(what), "%s %s under a shadow, async layer at scale %d: within 3 of the bitmap (largest %d)", kModes[m].name, inLayer ? "blending-group layer" : "fill", scale, largest);
                     check(largest <= 3, what);
+                    static unsigned char routed[kSide * kSide * 4], definitionPixels[kSide * kSide * 4];
+                    normalPixelsIn(routed, scale, gSRGB, ^(CGContextRef c) {
+                        CGContextSetRGBFillColor(c, 0.2, 0.6, 0.9, 1);
+                        CGContextFillRect(c, CGRectMake(0, 0, kSide, kSide));
+                        CGContextSetBlendMode(c, mode);
+                        CGContextSetShadowWithColor(c, CGSizeMake(6, -6), 5, scaleShadow);
+                        CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1);
+                        if (inLayer)
+                            wk_beginBlendingGroupLayer(c);
+                        CGContextFillRect(c, CGRectMake(64, 64, 96, 96));
+                        if (inLayer)
+                            CGContextEndTransparencyLayer(c);
+                    });
+                    normalPixelsIn(definitionPixels, scale, gSRGB, ^(CGContextRef c) {
+                        CGContextSetRGBFillColor(c, 0.2, 0.6, 0.9, 1);
+                        CGContextFillRect(c, CGRectMake(0, 0, kSide, kSide));
+                    });
+                    definitionScene(definitionPixels, mode, scale, CGSizeMake(6, -6), 5, scaleShadow, ^(CGContextRef c) {
+                        CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1);
+                        CGContextFillRect(c, CGRectMake(64, 64, 96, 96));
+                    });
+                    int fromDefinition = largestDifference(routed, definitionPixels);
+                    snprintf(what, sizeof(what), "%s %s under a shadow, bitmap at scale %d: within 3 of the definition (largest %d)", kModes[m].name, inLayer ? "blending-group layer" : "fill", scale, fromDefinition);
+                    check(fromDefinition <= 3, what);
                 }
             }
         }
@@ -756,6 +1017,37 @@ int main(void)
                         check(largest <= 3, what);
                         snprintf(what, sizeof(what), "%s leaves the text position a bitmap's does", kTextDraws[draw]);
                         check(fabs(surfaceAfter.x - bitmapAfter.x) < 0.01 && fabs(surfaceAfter.y - bitmapAfter.y) < 0.01, what);
+                        static unsigned char definitionPixels[kSide * kSide * 4];
+                        const CGGlyph *glyphList = glyphs;
+                        const CGSize *advanceList = advances;
+                        const CGPoint *positionList = positions;
+                        normalPixels(definitionPixels, ^(CGContextRef c) { prepare(c, 1); });
+                        definitionScene(definitionPixels, kCGBlendModeLuminosity, 1, CGSizeMake(4, -4), 2, shadow, ^(CGContextRef c) {
+                            CGContextSetRGBFillColor(c, 0.8, 0.3, 0.2, 1);
+                            CGContextSelectFont(c, "Helvetica", 28, kCGEncodingMacRoman);
+                            CGContextSetFont(c, graphicsFont);
+                            CGContextSetFontSize(c, 28);
+                            CGContextSetTextMatrix(c, CGAffineTransformMakeScale(1.5, 1));
+                            CGContextSetTextPosition(c, 20, 90);
+                            switch (draw) {
+                            case 0:
+                                CGContextSelectFont(c, "Helvetica", 28, kCGEncodingMacRoman);
+                                CGContextShowText(c, "Hued", 4);
+                                break;
+                            case 1:
+                                CGContextShowGlyphsWithAdvances(c, glyphList, advanceList, 4);
+                                break;
+                            case 2:
+                                CGContextShowGlyphsAtPositions(c, glyphList, positionList, 4);
+                                break;
+                            default:
+                                CTFontDrawGlyphs(font, glyphList, positionList, 4, c);
+                                break;
+                            }
+                        });
+                        int surfaceFromDefinition = largestDifference(surfacePixels, definitionPixels), bitmapFromDefinition = largestDifference(bitmapPixels, definitionPixels);
+                        snprintf(what, sizeof(what), "%s under luminosity and a shadow: surface and bitmap within 3 of the definition (largest %d, %d)", kTextDraws[draw], surfaceFromDefinition, bitmapFromDefinition);
+                        check(surfaceFromDefinition <= 3 && bitmapFromDefinition <= 3, what);
                     } else {
                         snprintf(what, sizeof(what), "%s under luminosity and a shadow, %s not allowed: within 3 of the bitmap (largest %d)", kTextDraws[draw], kAllows[off].name, largest);
                         check(largest <= 3, what);

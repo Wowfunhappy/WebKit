@@ -539,6 +539,18 @@ probe_cg_iosurface_context_image_draw() {
         "$T/cg_iosurface_context_image_draw"
 }
 
+probe_cg_hsl_blend() {
+    "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_hsl_blend" \
+        "$TBEHAV/CoreGraphics-hsl-blend.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
+        "$T/cg_hsl_blend"
+}
+
+probe_cg_hsl_window() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/cg_hsl_window" \
+        "$TBEHAV/CoreGraphics-hsl-window.m" $PROBE_LIBS -framework Cocoa &&
+        "$T/cg_hsl_window" titled && "$T/cg_hsl_window" borderless
+}
+
 probe_cg_iosurface_premultiplied_sanitize() {
     "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_premultiplied_sanitize" \
         "$TBEHAV/CoreGraphics-iosurface-premultiplied-sanitize.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
@@ -1283,6 +1295,8 @@ run_probe ax_client_identification "$@"
 run_probe cg_iosurface_image_colorspace "$@"
 run_probe cg_iosurface_image_matching "$@"
 run_probe cg_iosurface_context_image_draw "$@"
+run_probe cg_hsl_blend "$@"
+run_probe cg_hsl_window "$@"
 run_probe cg_gradient_dither_space "$@"
 run_probe cg_radial_coinciding "$@"
 run_probe cg_radial_iosurface "$@"

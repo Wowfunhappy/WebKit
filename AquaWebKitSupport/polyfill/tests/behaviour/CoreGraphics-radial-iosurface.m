@@ -450,8 +450,8 @@ int main(void)
         }
 
         {
-            // A shadow on a bitmap is 10.9's own draw, in another colour space too.
-            static const CGBlendMode modes[] = { kCGBlendModeNormal, kCGBlendModeSaturation, kCGBlendModeColorDodge, kCGBlendModeCopy };
+            // A shadow on a bitmap is 10.9's own draw, in another colour space too, under the modes it composites itself.
+            static const CGBlendMode modes[] = { kCGBlendModeNormal, kCGBlendModeMultiply, kCGBlendModeColorDodge, kCGBlendModeCopy };
             bool same = true;
             for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
                 Target ours = createTarget(false, kSide, kSide, gSRGB), stock = createTarget(false, kSide, kSide, gSRGB);
