@@ -12,7 +12,8 @@
 #     each single file it fetches into the product, the license text it fetches beside that file;
 #   - the Rust crates the closed-caption plug-in and the PDF library link, standard library included,
 #     found through `cargo metadata` on the plug-in's tree in deps/work/trees and on the PDF library's
-#     crate in AquaWebKitSupport/source.
+#     crate in AquaWebKitSupport/source, and the notices the Rust source tree's license-metadata.json
+#     gives for its library/ sources, with their texts from its LICENSES/.
 # It needs a completed deps build, and fails on anything it cannot find.
 
 import hashlib
@@ -29,7 +30,9 @@ DEPS = os.path.join(SUPPORT, 'deps')
 TARBALLS = os.path.join(DEPS, 'work', 'tarballs')
 TOOLCHAIN = os.path.join(SUPPORT, 'toolchain', 'build')
 
-LICENSE_NAME = re.compile(r'^(COPYING|LICEN[CS]E|COPYRIGHT|NOTICE|PATENTS|UNLICENSE)', re.IGNORECASE)
+# License texts by name; a .json of that name is machine-readable license data.
+LICENSE_NAME = re.compile(r'^(COPYING|LICEN[CS]E|COPYRIGHT|NOTICE|PATENTS|UNLICENSE)(?!.*\.json$)', re.IGNORECASE)
+SPDX_OPERATORS = {'AND', 'OR', 'WITH'}
 
 # The libraries the product ships, by a pattern on their build_deps.sh URL, with any license file
 # below the top of their tarball, or source file whose opening comment carries its own notice.
@@ -285,6 +288,56 @@ def rust_crates(cargo, manifest, roots, cargo_args, fallback, environment, own=(
     return sections
 
 
+def rust_library_notices(source):
+    # The Rust source tree's REUSE data (license-metadata.json) names the sources under library/,
+    # which the standard library builds from, whose notices differ from the tree's own. Each such
+    # path's notice, then the text of each license it names beyond the tree's own, from LICENSES/.
+    metadata = json.loads(read(os.path.join(source, 'license-metadata.json')))
+    top = metadata['files']['children']
+    if len(top) != 1 or top[0].get('name') != '.':
+        fail('unexpected layout in %s/license-metadata.json' % source)
+    root = top[0]['license']
+    covered = set(re.findall(r'[\w.+-]+', root['spdx'])) - SPDX_OPERATORS
+    notices, identifiers = [], []
+
+    def join(path, name):
+        return '%s/%s' % (path, name) if path else name
+
+    def record(path, license):
+        if license == root or not (path == 'library' or path.startswith('library/')):
+            return
+        notices.append('%s\n%s\nSPDX-License-Identifier: %s' % (
+            path, '\n'.join('Copyright %s' % c for c in license['copyright']), license['spdx']))
+        for identifier in re.findall(r'[\w.+-]+', license['spdx']):
+            if identifier not in SPDX_OPERATORS | covered and identifier not in identifiers:
+                identifiers.append(identifier)
+
+    def walk(node, path):
+        # A group names no path of its own; its license covers the files and directories it lists.
+        if node.get('type') == 'group':
+            for name in node.get('files', []) + node.get('directories', []):
+                record(join(path, name), node['license'])
+            return
+        if node.get('name'):
+            path = join(path, node['name'])
+        if 'license' in node:
+            record(path, node['license'])
+        for child in node.get('children', []):
+            walk(child, path)
+
+    for child in top[0].get('children', []):
+        walk(child, '')
+    if not notices:
+        return []
+    texts = [('license-metadata.json', '\n\n'.join(notices))]
+    for identifier in identifiers:
+        path = os.path.join(source, 'LICENSES', identifier + '.txt')
+        if not os.path.isfile(path):
+            fail('%s is missing' % path)
+        texts.append(('LICENSES/%s.txt' % identifier, read(path)))
+    return [('Rust standard library sources', texts)]
+
+
 def rust_sections():
     tree = os.path.join(DEPS, 'work', 'trees', 'build-gstclosedcaption')
     cargo = os.path.join(TOOLCHAIN, 'rust', 'bin', 'cargo')
@@ -293,7 +346,8 @@ def rust_sections():
         if not os.path.exists(path):
             fail('%s is missing; run AquaWebKitSupport/deps/build_deps.sh' % path)
     environment = dict(os.environ, CARGO_HOME=os.path.join(TOOLCHAIN, 'rust', 'cargo-home'), RUSTC=rustc)
-    fallback = rust_license_files(os.path.join(TOOLCHAIN, 'rust-bootstrap', 'rustc-nightly-src'))
+    source = os.path.join(TOOLCHAIN, 'rust-bootstrap', 'rustc-nightly-src')
+    fallback = rust_license_files(source)
     if not fallback:
         fail('no Rust source license files under %s' % os.path.join(TOOLCHAIN, 'rust-bootstrap'))
     sysroot = subprocess.check_output([rustc, '--print', 'sysroot'], env=environment).decode().strip()
@@ -307,7 +361,7 @@ def rust_sections():
     for section in plugin + pdf + std:
         if section[0] not in {title for title, _ in sections}:
             sections.append(section)
-    return sections
+    return sections + rust_library_notices(source)
 
 
 def main():
