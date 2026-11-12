@@ -22,6 +22,11 @@ This port is based off the same branch of WebKit used by Safari 27 in macOS Gold
    - Polyfills ensure we are using battle-tested upstream logic over custom logic we wrote ourselves. A polyfill merely provides WebKit with the environment it expects.
 - Minimize the amount of complex computer-generated code by using existing libraries where possible.
 
+## Known Limitations
+- Due to fundamental Core Animation restrictions on Mavericks, `backdrop-filter` is replaced with a simple darkening filter.
+- WebGPU is currently not supported.
+- WebTransport is not supported, primarily because it's still a draft specification.
+
 ## Building
 Relative to the complexity of WebKit, building this project should be straightforward. Please try it! If you run into trouble, open an issue.
 
