@@ -506,15 +506,17 @@ CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession* storag
     return { CocoaCurlCacheAnswer::Load, nullptr };
 }
 
-void addCocoaCurlCacheValidators(ResourceRequest& request, NSCachedURLResponse *entry)
+HTTPHeaderMap cocoaCurlCacheValidators(const ResourceRequest& request, NSCachedURLResponse *entry)
 {
+    HTTPHeaderMap validators;
     ResourceResponse response([entry response]);
     auto entityTag = response.httpHeaderField(HTTPHeaderName::ETag);
     if (!entityTag.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::IfNoneMatch))
-        request.setHTTPHeaderField(HTTPHeaderName::IfNoneMatch, entityTag);
+        validators.set(HTTPHeaderName::IfNoneMatch, entityTag);
     auto lastModified = response.httpHeaderField(HTTPHeaderName::LastModified);
     if (!lastModified.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::IfModifiedSince))
-        request.setHTTPHeaderField(HTTPHeaderName::IfModifiedSince, lastModified);
+        validators.set(HTTPHeaderName::IfModifiedSince, lastModified);
+    return validators;
 }
 
 static ResourceResponse cocoaCurlStoredResponse(NSCachedURLResponse *entry)
@@ -683,6 +685,32 @@ bool isValidCocoaCurlRequestHeaderValue(const String& value)
     return true;
 }
 
+// CFNetwork writes a request's fields in its NSURLRequest's header-dictionary order. On 10.9 that
+// order also depends on how often the request was rebuilt, as each process hop rebuilds it; the order
+// here is that of a request built once from these fields, set in WebKit's header-name order.
+static Vector<HTTPHeaderMap::HTTPHeaderMapConstIterator::KeyValue> fieldsInPlatformOrder(const HTTPHeaderMap& map)
+{
+    Vector<HTTPHeaderMap::HTTPHeaderMapConstIterator::KeyValue> fields;
+    for (auto& field : map)
+        fields.append(field);
+    std::ranges::stable_sort(fields, { }, [](auto& field) {
+        return field.keyAsHTTPHeaderName ? static_cast<unsigned>(*field.keyAsHTTPHeaderName) : std::numeric_limits<unsigned>::max();
+    });
+
+    RetainPtr platformRequest = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"http://localhost/"]]);
+    for (auto& field : fields)
+        [platformRequest setValue:@"" forHTTPHeaderField:field.key.createNSString().get()];
+    Vector<String> platformOrder;
+    auto* order = &platformOrder;
+    [[platformRequest allHTTPHeaderFields] enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSString *, BOOL *) {
+        order->append(name);
+    }];
+    std::ranges::stable_sort(fields, { }, [&](auto& field) {
+        return platformOrder.findIf([&](auto& name) { return equalIgnoringASCIICase(name, field.key); });
+    });
+    return fields;
+}
+
 bool CocoaCurlTransfer::setup()
 {
     auto& request = m_options.request;
@@ -699,7 +727,7 @@ bool CocoaCurlTransfer::setup()
         return true;
     };
     bool carriesPriority = false;
-    for (auto& field : request.httpHeaderFields()) {
+    for (auto& field : fieldsInPlatformOrder(request.httpHeaderFields())) {
         if (!isValidHTTPToken(field.key) || !isValidCocoaCurlRequestHeaderValue(field.value))
             return false;
         // CURLOPT_COOKIE below sends the Cookie field.
@@ -708,16 +736,15 @@ bool CocoaCurlTransfer::setup()
         // An empty Accept-Language or Accept-Encoding field sends none, in place of the transport's own.
         if (field.value.isEmpty() && (equalLettersIgnoringASCIICase(field.key, "accept-language"_s) || equalLettersIgnoringASCIICase(field.key, "accept-encoding"_s)))
             continue;
-        // Safari 7's framework, which it injects into the WebProcess, sets DNT from the Privacy
-        // checkbox that drives this port's advanced privacy protections; the browser this WebKit
-        // reports itself as has no such field.
-        if (equalLettersIgnoringASCIICase(field.key, "dnt"_s))
-            continue;
         carriesPriority |= equalLettersIgnoringASCIICase(field.key, "priority"_s);
         bool isEventID = field.keyAsHTTPHeaderName && *field.keyAsHTTPHeaderName == HTTPHeaderName::LastEventID;
         auto line = makeString(field.key, field.value.isEmpty() ? ";"_s : ": "_s, field.value);
         bool needsUTF8 = isEventID && !field.value.containsOnlyASCII();
         if (!appendHeader(needsUTF8 ? line.utf8() : line.latin1()))
+            return false;
+    }
+    for (auto& field : m_options.cacheValidators) {
+        if (!isValidCocoaCurlRequestHeaderValue(field.value) || !appendHeader(makeString(field.key, ": "_s, field.value).latin1()))
             return false;
     }
     if (!request.hasHTTPHeaderField(HTTPHeaderName::ContentType) && !appendHeader(CString("Content-Type:")))
@@ -772,7 +799,9 @@ bool CocoaCurlTransfer::setup()
     // A NULL CURLOPT_COOKIE is the only value for which curl sends no Cookie field at all; an
     // empty string produces an empty one, so an empty field sends none. Its value is octets, as every
     // other field's is.
-    auto cookieField = request.httpHeaderField(HTTPHeaderName::Cookie);
+    auto cookieField = request.hasHTTPHeaderField(HTTPHeaderName::Cookie) ? request.httpHeaderField(HTTPHeaderName::Cookie) : m_options.cookie;
+    if (!isValidCocoaCurlRequestHeaderValue(cookieField))
+        return false;
     CURL_SET(CURLOPT_COOKIE, cookieField.isEmpty() ? nullptr : cookieField.latin1().data());
     CURL_SET(CURLOPT_HTTPHEADER, m_headers);
     CURL_SET(CURLOPT_HEADERFUNCTION, headerCallback);

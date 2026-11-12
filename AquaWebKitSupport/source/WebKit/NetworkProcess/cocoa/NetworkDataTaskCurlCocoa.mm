@@ -226,12 +226,9 @@ void NetworkDataTaskCurlCocoa::setup()
     CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
     options.presentsPreferredIdentity = !configuration.get()._shouldSkipPreferredClientCertificateLookup;
-    // The jar's Cookie field goes on the wire only, as CFNetwork adds it; a Cookie field the request carries, as a
-    // Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
-    if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty())
-            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
-    }
+    // A Cookie field the request carries, as a Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
+    if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie))
+        options.cookie = cookieHeaderValue(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID);
     options.contentEncodingSniffingPolicy = m_contentEncodingSniffingPolicy;
     options.connectionURL = m_connectionURL;
     if (auto body = m_request.httpBody())

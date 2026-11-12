@@ -183,16 +183,14 @@ void CocoaCurlResourceHandle::beginTransfer()
     m_cachedEntry = cache.answer == CocoaCurlCacheAnswer::Revalidate ? WTF::move(cache.entry) : nullptr;
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
-    // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
     if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         auto cookie = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
-        if (!cookie.isEmpty())
-            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
+        options.cookie = WTF::move(cookie);
     }
     options.contentEncodingSniffingPolicy = m_handle->contentEncodingSniffingPolicy();
     options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
-        addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
+        options.cacheValidators = cocoaCurlCacheValidators(m_request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body);
     options.acceptedCertificateChain = m_acceptedChain;

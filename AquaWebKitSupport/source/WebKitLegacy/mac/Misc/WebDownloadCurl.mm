@@ -362,16 +362,14 @@ void WebDownloadCurlClient::beginTransfer()
     Ref scheduler { *m_pool };
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
-    // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
     if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
-        if (!value.isEmpty())
-            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
+        options.cookie = WTF::move(value);
     }
     options.connectionURL = m_connectionURL;
     options.presentsPreferredIdentity = true;
     if (m_cachedEntry)
-        addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
+        options.cacheValidators = cocoaCurlCacheValidators(m_request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body);
     options.acceptedCertificateChain = m_acceptedChain;

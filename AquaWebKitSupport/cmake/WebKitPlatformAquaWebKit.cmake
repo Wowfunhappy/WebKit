@@ -134,6 +134,7 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/Automation/BidiBrowserAgentAquaWebKit.cpp
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/mac/AquaWebKitPageClient.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/mac/WebPageProxyMacAquaWebKit.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7DoNotTrackField.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7StandardWorldBindings.cpp
 )
 

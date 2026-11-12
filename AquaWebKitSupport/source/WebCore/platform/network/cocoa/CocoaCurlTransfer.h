@@ -92,8 +92,8 @@ struct CocoaCurlCacheLookup {
 };
 WEBCORE_EXPORT CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&);
 WEBCORE_EXPORT void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession*, const ResourceRequest&, const ResourceResponse&);
-// The stored response's validators, on a request that carries none of its own.
-WEBCORE_EXPORT void addCocoaCurlCacheValidators(ResourceRequest&, NSCachedURLResponse *);
+// The stored response's validators that the request does not carry itself.
+WEBCORE_EXPORT HTTPHeaderMap cocoaCurlCacheValidators(const ResourceRequest&, NSCachedURLResponse *);
 // The stored response a 304 confirms, carrying the fields the 304 updates.
 WEBCORE_EXPORT ResourceResponse cocoaCurlRevalidatedResponse(NSCachedURLResponse *, const ResourceResponse& notModified);
 WEBCORE_EXPORT ResourceResponse cocoaCurlCachedResponse(NSCachedURLResponse *, const ResourceRequest&);
@@ -115,7 +115,13 @@ struct CocoaCurlTransferOptions {
         : minimumTLSProtocol(minimumTLSProtocol) { }
 
     tls_protocol_version_t minimumTLSProtocol;
+    // The request as a loader hands it to CFNetwork; its fields reach the wire in the order CFNetwork
+    // writes them, that of its NSURLRequest's header dictionary.
     ResourceRequest request;
+    // The fields CFNetwork adds to that request itself: the jar's Cookie field, sent when request
+    // carries none, and a cached response's validators.
+    String cookie;
+    HTTPHeaderMap cacheValidators;
     // The URL the transfer connects to and asks for in place of request's, when a WKExternalURLRewrite
     // retargeted it (ExternalURLRewrite.h). The response and errors carry request's URL.
     URL connectionURL;

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "InjectedBundlePageResourceLoadClient.h"
 
+#include "Safari7DoNotTrackField.h" // AQUAWEBKIT: willSendRequestForFrame below.
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 #include "WebFrame.h"
@@ -58,8 +59,10 @@ void InjectedBundlePageResourceLoadClient::willSendRequestForFrame(WebPage& page
     RefPtr<API::URLRequest> returnedRequest = adoptRef(toImpl(m_client.willSendRequestForFrame(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(request), toAPI(redirectResponse), m_client.base.clientInfo)));
     if (returnedRequest) {
         // If the client returned an HTTP body, we want to use that http body. This is needed to fix <rdar://problem/23763584>
-        auto& returnedResourceRequest = returnedRequest->resourceRequest();
-        RefPtr<FormData> returnedHTTPBody = returnedResourceRequest.httpBody();
+        // auto& returnedResourceRequest = returnedRequest->resourceRequest();
+        auto returnedResourceRequest = requestWithoutSafari7DoNotTrackField(returnedRequest->resourceRequest()); // AQUAWEBKIT: the request Safari 7's bundle returns, without the DNT field it adds.
+        // RefPtr<FormData> returnedHTTPBody = returnedResourceRequest.httpBody();
+        RefPtr<FormData> returnedHTTPBody = returnedRequest->resourceRequest().httpBody(); // AQUAWEBKIT: the body of the request the bundle returned.
         request.updateFromDelegatePreservingOldProperties(returnedResourceRequest);
         if (returnedHTTPBody)
             request.setHTTPBody(WTF::move(returnedHTTPBody));
