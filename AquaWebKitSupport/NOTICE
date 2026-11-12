@@ -12,7 +12,7 @@ WebCore.framework includes libheif, which is distributed under the terms of the 
 
 JavaScriptCore.framework includes the LLVM C++ runtime (libc++ and libc++abi), which is distributed under the terms of the Apache License v2.0 with LLVM Exceptions.
 
-The closed-caption GStreamer plug-in includes the Rust crates listed below under "Rust crate".
+The closed-caption GStreamer plug-in and the PDF library (libwk_pdf) include the Rust crates listed below under "Rust crate".
 
 NOTICE OF COMBINED LIBRARIES
 

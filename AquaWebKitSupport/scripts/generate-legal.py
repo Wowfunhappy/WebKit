@@ -8,11 +8,11 @@
 # The output defaults to WebKitBuild/Release/Legal.txt. The texts come from:
 #   - this port: AquaWebKitSupport/LICENSE and the polyfill layer's shared/LICENSE and APSL-2.0.txt;
 #   - WebKit: the license files under the Source/ directories the build compiles;
-#   - LLVM: toolchain/vendor/clang/LICENSE.TXT, for the C++ runtime in JavaScriptCore.framework;
 #   - each library deps/build_deps.sh fetches, read from its tarball in deps/work/tarballs, and for
 #     each single file it fetches into the product, the license text it fetches beside that file;
-#   - the Rust crates the closed-caption plug-in links, standard library included, found through
-#     `cargo metadata` on its tree in deps/work/trees.
+#   - the Rust crates the closed-caption plug-in and the PDF library link, standard library included,
+#     found through `cargo metadata` on the plug-in's tree in deps/work/trees and on the PDF library's
+#     crate in AquaWebKitSupport/source.
 # It needs a completed deps build, and fails on anything it cannot find.
 
 import hashlib
@@ -36,6 +36,8 @@ LICENSE_NAME = re.compile(r'^(COPYING|LICEN[CS]E|COPYRIGHT|NOTICE|PATENTS|UNLICE
 # Every URL in build_deps.sh must match one of these, SHIPPED_FILES, LICENSE_TEXTS, PART_OF or
 # NOT_HERE.
 SHIPPED = [
+    ('LLVM C++ runtime (libc++, libc++abi)', r'/llvm/llvm-project/',
+     ['libcxx/LICENSE.TXT', 'libcxxabi/LICENSE.TXT']),
     ('ICU', r'/apple-oss-distributions/ICU/', ['icu/LICENSE']),
     ('libgpg-error', r'/libgpg-error-', []),
     ('libgcrypt', r'/libgcrypt-', []),
@@ -50,12 +52,13 @@ SHIPPED = [
     ('LibTIFF', r'/tiff-', []),
     ('nghttp2', r'/nghttp2-', []),
     ('libpsl', r'/libpsl-', ['src/LICENSE.chromium']),
+    ('zlib', r'/madler/zlib/', []),
+    ('bzip2', r'/bzip2-', []),
     ('Zstandard', r'/zstd-', []),
     ('curl', r'/curl-', []),
-    ('GLib', r'/glib-', []),
+    ('GLib', r'/glib-', ['subprojects/gvdb/COPYING']),
     ('PCRE2', r'/pcre2-', []),
-    ('GVDB', r'/gvdb/', []),
-    ('libffi', r'/meson-ports/libffi/', []),
+    ('libffi', r'/libffi/libffi/', []),
     ('proxy-libintl', r'/proxy-libintl/', []),
     ('ORC', r'/orc-', []),
     ('libogg', r'/libogg-', []),
@@ -95,9 +98,10 @@ SHIPPED_FILES = [
 PART_OF = [r'/unicode-org/icu-data/']
 LICENSE_TEXTS = [r'/spdx/license-list-data/', r'/chromium/src/.*/LICENSE',
                 r'/sqlite/sqlite/.*/LICENSE\.md$']
-# Build tools, the layout tests' Apache, the zlib GLib finds on 10.9 instead, and the Meson build
-# files of two subprojects; gst-plugins-rs is among the Rust crates.
-NOT_HERE = [r'/pkgconf-', r'/bison-', r'/httpd-', r'/apr-', r'/zlib-', r'/gst-plugins-rs/', r'wrapdb\.mesonbuild\.com/']
+# Build tools, the layout tests' Apache and the PCRE2 it links, and the Meson build files of two
+# subprojects; gst-plugins-rs is among the Rust crates.
+NOT_HERE = [r'/pkgconf-', r'/bison-', r'/httpd-', r'/apr-', r'/PhilipHazel/pcre2/', r'/gst-plugins-rs/',
+            r'wrapdb\.mesonbuild\.com/']
 
 # The WebKit directories the build compiles into the product, and what under them is not.
 WEBKIT_DIRS = ['WTF', 'JavaScriptCore', 'WebCore', 'WebKit', 'WebKitLegacy', 'bmalloc',
@@ -106,6 +110,12 @@ WEBKIT_SKIP_DIRS = {'test', 'tests', 'testing', 'doc', 'docs', 'tool', 'tools', 
 WEBKIT_SKIP_NAMES = re.compile(r'(^license_template\.txt$|\.(py|h|c|cc|cpp|gn|gni)$)')
 
 RUST_PLUGIN = 'gst-plugin-closedcaption'
+# The PDF library's crate, under the Aqua WebKit section's license.
+PDF_CRATE = os.path.join(SUPPORT, 'source', 'WebCore', 'platform', 'graphics', 'hayro')
+PDF_CRATE_NAME = 'wk_pdf'
+# Crates published without their repository's license file, by the crate published from the same
+# repository that carries it.
+RUST_LICENSE_FROM = {'alloc-stdlib': 'alloc-no-stdlib'}
 
 
 def fail(message):
@@ -229,11 +239,12 @@ def rust_license_files(directory):
             if LICENSE_NAME.match(n) and os.path.isfile(os.path.join(directory, n))]
 
 
-def rust_crates(cargo, manifest, roots, cargo_args, fallback, environment):
+def rust_crates(cargo, manifest, roots, cargo_args, fallback, environment, own=()):
     # The roots and every crate they reach through normal dependencies, short of proc-macro crates,
-    # which run in the compiler and link into nothing. A crate's license files are those in its
-    # package directory, else in the nearest enclosing one up to its workspace root, else, inside
-    # the workspace, those in `fallback`.
+    # which run in the compiler and link into nothing, and short of the `own` crates, which are this
+    # port's. A crate's license files are those in its package directory, else those RUST_LICENSE_FROM
+    # names, else those in the nearest enclosing directory up to its workspace root, else, inside the
+    # workspace, those in `fallback`.
     metadata = json.loads(subprocess.check_output(
         [cargo, 'metadata', '--format-version', '1', '--locked', '--manifest-path', manifest,
          '--filter-platform', 'x86_64-apple-darwin'] + cargo_args,
@@ -251,10 +262,16 @@ def rust_crates(cargo, manifest, roots, cargo_args, fallback, environment):
         reached.add(node['id'])
         pending += [d['pkg'] for d in node['deps'] if any(k['kind'] is None for k in d['dep_kinds'])]
     sections = []
-    for package in sorted((packages[i] for i in reached), key=lambda p: (p['name'], p['version'])):
+    for package in sorted((packages[i] for i in reached if packages[i]['name'] not in own),
+                          key=lambda p: (p['name'], p['version'])):
         directory = os.path.realpath(os.path.dirname(package['manifest_path']))
         in_workspace = directory.startswith(workspace_root + os.sep)
         files = rust_license_files(directory)
+        if not files and package['name'] in RUST_LICENSE_FROM:
+            sources = [p for p in packages.values() if p['name'] == RUST_LICENSE_FROM[package['name']]
+                       and p['repository'] == package['repository']]
+            if sources:
+                files = rust_license_files(os.path.dirname(sources[0]['manifest_path']))
         while not files and directory.startswith(workspace_root + os.sep):
             directory = os.path.dirname(directory)
             files = rust_license_files(directory)
@@ -272,7 +289,7 @@ def rust_sections():
     tree = os.path.join(DEPS, 'work', 'trees', 'build-gstclosedcaption')
     cargo = os.path.join(TOOLCHAIN, 'rust', 'bin', 'cargo')
     rustc = os.path.join(TOOLCHAIN, 'rust-mavericks', 'bin', 'rustc')
-    for path in (tree, cargo, rustc):
+    for path in (tree, PDF_CRATE, cargo, rustc):
         if not os.path.exists(path):
             fail('%s is missing; run AquaWebKitSupport/deps/build_deps.sh' % path)
     environment = dict(os.environ, CARGO_HOME=os.path.join(TOOLCHAIN, 'rust', 'cargo-home'), RUSTC=rustc)
@@ -282,10 +299,15 @@ def rust_sections():
     sysroot = subprocess.check_output([rustc, '--print', 'sysroot'], env=environment).decode().strip()
     plugin = rust_crates(cargo, os.path.join(tree, 'video', 'closedcaption', 'Cargo.toml'), [RUST_PLUGIN],
                          ['--no-default-features'], [], environment)
+    pdf = rust_crates(cargo, os.path.join(PDF_CRATE, 'Cargo.toml'), [PDF_CRATE_NAME], [], [], environment,
+                      own=[PDF_CRATE_NAME])
     std = rust_crates(cargo, os.path.join(sysroot, 'lib', 'rustlib', 'src', 'rust', 'library', 'Cargo.toml'),
                       ['std', 'panic_unwind'], [], fallback, environment)
-    seen = {title for title, _ in plugin}
-    return plugin + [section for section in std if section[0] not in seen]
+    sections = []
+    for section in plugin + pdf + std:
+        if section[0] not in {title for title, _ in sections}:
+            sections.append(section)
+    return sections
 
 
 def main():
@@ -295,8 +317,6 @@ def main():
                 ('Polyfill layer (MacPorts legacy support)', [('LICENSE', read(os.path.join(shared, 'LICENSE'))),
                                                               ('APSL-2.0.txt', read(os.path.join(shared, 'APSL-2.0.txt')))])]
     sections += webkit_sections()
-    sections.append(('LLVM C++ runtime (libc++, libc++abi)',
-                     [('LICENSE.TXT', read(os.path.join(SUPPORT, 'toolchain', 'vendor', 'clang', 'LICENSE.TXT')))]))
     sections += third_party_sections()
     sections += rust_sections()
 
