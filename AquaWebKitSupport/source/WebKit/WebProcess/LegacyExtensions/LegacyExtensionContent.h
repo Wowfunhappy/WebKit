@@ -59,7 +59,9 @@ public:
     // User content was added or removed: also tells the router the roots of the extensions whose user content
     // the process holds.
     void userContentDidChange();
-    void didClearWindowObjectForFrame(WebFrame&, WebCore::DOMWrapperWorld&);
+    // Installs the extension API in the frame's global object of the world, unless that global object already
+    // holds the API of the frame's document.
+    void installAPIInFrame(WebFrame&, WebCore::DOMWrapperWorld&);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 

@@ -39,7 +39,7 @@
 // AQUAWEBKIT: the bundle receives the actual navigation HistoryItem.
 #include "InjectedBundleBackForwardListItem.h"
 #include "InjectedBundleDOMWindowExtension.h"
-#include "LegacyExtensionContent.h" // AQUAWEBKIT: dispatchDidClearWindowObjectInWorld below.
+#include "LegacyExtensionContent.h" // AQUAWEBKIT: dispatchDidClearWindowObjectInWorld and dispatchGlobalObjectAvailable below.
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
@@ -2008,7 +2008,7 @@ void WebLocalFrameLoaderClient::dispatchDidClearWindowObjectInWorld(DOMWrapperWo
 
     webPage->injectedBundleLoaderClient().didClearWindowObjectForFrame(*webPage, m_frame, world);
 
-    LegacyExtensionContent::singleton().didClearWindowObjectForFrame(m_frame, world); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
+    LegacyExtensionContent::singleton().installAPIInFrame(m_frame, world); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
 
     RefPtr automationSessionProxy = WebProcess::singleton().automationSessionProxy();
     if (automationSessionProxy && world.isNormal())
@@ -2025,6 +2025,8 @@ void WebLocalFrameLoaderClient::dispatchGlobalObjectAvailable(DOMWrapperWorld& w
     if (RefPtr extensionControllerProxy = webPage->webExtensionControllerProxy())
         extensionControllerProxy->globalObjectIsAvailableForFrame(*webPage, m_frame, world);
 #endif
+
+    LegacyExtensionContent::singleton().installAPIInFrame(m_frame, world); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
 
     webPage->injectedBundleLoaderClient().globalObjectIsAvailableForFrame(*webPage, m_frame, world);
 }

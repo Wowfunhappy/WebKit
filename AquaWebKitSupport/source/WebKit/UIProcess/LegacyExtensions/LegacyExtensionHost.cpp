@@ -3470,19 +3470,20 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     documentsDidGoAway([&](auto frameID, auto candidate) {
         return frameID == frame.frameID() && candidate != documentID;
     });
+    // Another page of the same extension takes over the frame's context, so the extension stays loaded.
+    auto extensionKey = extensionKeyForURL(url);
     if (auto identifier = m_hostContextByRemoteFrame.get(frame.frameID())) {
         RefPtr context = m_hostContexts.get(identifier);
-        if (context && context->documentID != documentID) {
-            // Another page of the same extension takes over the frame's context, so the extension stays loaded.
-            if (extensionKeyForURL(url) == context->extensionKey)
-                extensionPageContext(frame, documentID, url, context->extensionKey);
-            else {
-                m_hostContextByRemoteFrame.remove(frame.frameID());
-                m_hostContexts.remove(identifier);
-                hostContextDidGoAway(*context);
-            }
+        if (context && context->documentID != documentID && extensionKey != context->extensionKey) {
+            m_hostContextByRemoteFrame.remove(frame.frameID());
+            m_hostContexts.remove(identifier);
+            hostContextDidGoAway(*context);
         }
     }
+    // A frame speaks for the extension page it commits from then on, so disabling or reloading the extension
+    // invalidates the page whether or not it has sent anything.
+    if (!extensionKey.isEmpty() && documentID)
+        extensionPageContext(frame, documentID, url, extensionKey);
     m_documentsEnteringBackForwardCache.removeIf([&](auto& entry) {
         return entry.value == frame.frameID() && (!documentID || entry.key != *documentID);
     });

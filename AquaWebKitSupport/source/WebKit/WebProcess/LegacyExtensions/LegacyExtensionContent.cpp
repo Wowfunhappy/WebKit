@@ -36,6 +36,8 @@
 #include <JavaScriptCore/JSONObject.h>
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <JavaScriptCore/TopExceptionScope.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
 #include <JavaScriptCore/JSStringRef.h>
 #include <wtf/Expected.h>
 #include <wtf/HashSet.h>
@@ -83,15 +85,20 @@ struct ContentContextNative {
     String root;
 };
 
-// Tells the router that a document with extension contexts enters the back/forward cache. The document is
-// suspended before its frame commits the next document, and the message goes ahead of that commit's on the
-// same connection, so the router closes the document's channels with Chrome's error for a cached page.
-class BackForwardCacheObserver final : public RefCounted<BackForwardCacheObserver>, public WebCore::ActiveDOMObject {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(BackForwardCacheObserver);
+static void closeMediaSessionsOfDocument(WebCore::ScriptExecutionContextIdentifier);
+static void removeExtensionContextsOfDocument(WebCore::Document&);
+
+// Ends what the extension contexts of a document hold when the document leaves its frame. On entering the
+// back/forward cache, the document is suspended before its frame commits the next document, and the message goes
+// ahead of that commit's on the same connection, so the router closes the document's channels with Chrome's error
+// for a cached page; the document's media sessions close. A stopped document's media sessions close and its
+// contexts are gone.
+class ContextDocumentObserver final : public RefCounted<ContextDocumentObserver>, public WebCore::ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(ContextDocumentObserver);
 public:
-    static Ref<BackForwardCacheObserver> create(WebCore::Document& document, WebCore::FrameIdentifier frameID, const String& extensionKey)
+    static Ref<ContextDocumentObserver> create(WebCore::Document& document, WebCore::FrameIdentifier frameID, const String& extensionKey)
     {
-        Ref observer = adoptRef(*new BackForwardCacheObserver(document, frameID, extensionKey));
+        Ref observer = adoptRef(*new ContextDocumentObserver(document, frameID, extensionKey));
         observer->suspendIfNeeded();
         return observer;
     }
@@ -100,7 +107,7 @@ public:
     void deref() const final { RefCounted::deref(); }
 
 private:
-    BackForwardCacheObserver(WebCore::Document& document, WebCore::FrameIdentifier frameID, const String& extensionKey)
+    ContextDocumentObserver(WebCore::Document& document, WebCore::FrameIdentifier frameID, const String& extensionKey)
         : ActiveDOMObject(document)
         , m_frameID(frameID)
         , m_extensionKey(extensionKey)
@@ -113,6 +120,17 @@ private:
         if (reason != WebCore::ReasonForSuspension::BackForwardCache || !document)
             return;
         WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(m_frameID, document->identifier(), document->url(), m_extensionKey, "{\"t\":\"cached\"}"_s, { }), 0);
+        closeMediaSessionsOfDocument(document->identifier());
+    }
+
+    void stop() final
+    {
+        RefPtr document = dynamicDowncast<WebCore::Document>(scriptExecutionContext());
+        if (!document)
+            return;
+        Ref protectedThis { *this };
+        closeMediaSessionsOfDocument(document->identifier());
+        removeExtensionContextsOfDocument(*document);
     }
 
     WebCore::FrameIdentifier m_frameID;
@@ -126,11 +144,13 @@ struct ExtensionContext {
     WebCore::FrameIdentifier frameID;
     String extensionKey;
     SingleThreadWeakPtr<WebCore::DOMWrapperWorld> world;
+    // The global object of the frame's world the context's API is installed in.
+    JSC::Weak<JSC::JSGlobalObject> globalObject;
     String root;
     bool isContentScript { false };
     bool wasLive { true };
     // One per document, shared by its contexts.
-    RefPtr<BackForwardCacheObserver> backForwardCacheObserver;
+    RefPtr<ContextDocumentObserver> documentObserver;
     // An extension page whose extension Safari disabled or reloaded, as the router reports it.
     bool isInvalidated { false };
 };
@@ -139,6 +159,13 @@ static Vector<ExtensionContext>& extensionContexts()
 {
     static NeverDestroyed<Vector<ExtensionContext>> contexts;
     return contexts;
+}
+
+static void removeExtensionContextsOfDocument(WebCore::Document& document)
+{
+    extensionContexts().removeAllMatching([&](auto& context) {
+        return context.document == &document;
+    });
 }
 
 static RefPtr<WebCore::Document> documentForNative(const ContentContextNative& native)
@@ -685,6 +712,36 @@ static JSValueRef contentContextWithMediaPlayerHandoff(JSContextRef context, JSO
 
 #include "MediaPlayerPrimitives.inc"
 
+static void closeMediaSessions(NOESCAPE const Function<bool(const NativeMediaSession&)>& predicate)
+{
+    std::erase_if(NativeMediaSession::sessions(), [](auto& weakSession) { return weakSession.expired(); });
+    Vector<std::shared_ptr<NativeMediaSession>> sessions;
+    for (auto& weakSession : NativeMediaSession::sessions()) {
+        if (auto session = weakSession.lock(); session && !session->closed && predicate(*session))
+            sessions.append(WTF::move(session));
+    }
+    for (auto& session : sessions)
+        session->close();
+}
+
+static void closeMediaSessionsOfDocument(WebCore::ScriptExecutionContextIdentifier documentID)
+{
+    closeMediaSessions([&](auto& session) {
+        return session.native.documentIdentifier == documentID;
+    });
+}
+
+static void completeHandoffScopes(NOESCAPE const Function<bool(const ContentContextNative&)>& predicate)
+{
+    Vector<std::shared_ptr<MediaPlayerHandoffScope>> scopes;
+    for (auto& weakScope : MediaPlayerHandoffScope::scopes()) {
+        if (auto scope = weakScope.lock(); scope && !scope->finished && predicate(scope->native))
+            scopes.append(WTF::move(scope));
+    }
+    for (auto& scope : scopes)
+        scope->complete("no-source"_s);
+}
+
 // The roots of the extensions whose content scripts and style sheets this process holds,
 // safari-extension://<key>/<token>/, from which the router knows those extensions are loaded. The scripts an
 // extension registers for the page's own world are the router's, and are not Safari's content.
@@ -716,41 +773,32 @@ void LegacyExtensionContent::userContentDidChange()
         }
     }
 
-    Vector<std::shared_ptr<NativeMediaSession>> expired;
-    std::erase_if(NativeMediaSession::sessions(), [](auto& weakSession) { return weakSession.expired(); });
-    for (auto& weakSession : NativeMediaSession::sessions()) {
-        if (auto session = weakSession.lock(); session && !session->closed && !documentForNative(session->native))
-            expired.append(WTF::move(session));
-    }
-    for (auto& session : expired)
-        session->close();
-
-    Vector<std::shared_ptr<MediaPlayerHandoffScope>> endedScopes;
-    for (auto& weakScope : MediaPlayerHandoffScope::scopes()) {
-        if (auto scope = weakScope.lock(); scope && !scope->finished && !documentForNative(scope->native))
-            endedScopes.append(WTF::move(scope));
-    }
-    for (auto& scope : endedScopes)
-        scope->complete("no-source"_s);
+    // Withdrawing a content-script world ends the media of its contexts.
+    auto isWithdrawn = [this](const ContentContextNative& native) {
+        return !native.world || !isContextLive(*native.world, native.root);
+    };
+    closeMediaSessions([&](auto& session) {
+        return isWithdrawn(session.native);
+    });
+    completeHandoffScopes([&](auto& native) {
+        return isWithdrawn(native);
+    });
 
     // A content script's context whose world Safari withdraws while its frame shows its document is gone for
     // the router, which ends its ports. The router ended those of a document in the back/forward cache when
     // the frame committed another.
-    extensionContexts().removeAllMatching([this](auto& context) {
-        RefPtr document = context.document.get();
-        if (!document)
-            return true;
+    for (auto& context : extensionContexts()) {
         bool isLive = context.world && isContextLive(*context.world, context.root);
         bool wasLive = std::exchange(context.wasLive, isLive);
         if (!context.isContentScript || !wasLive || isLive)
-            return false;
+            continue;
+        RefPtr document = context.document.get();
         RefPtr frame = WebFrame::webFrame(context.frameID);
         RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
         if (!coreFrame || coreFrame->document() != document.get())
-            return false;
+            continue;
         WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(context.frameID, document->identifier(), document->url(), context.extensionKey, "{\"t\":\"gone\"}"_s, { }), 0);
-        return false;
-    });
+    }
 }
 
 // mimeHandler: the document whose handler page is the context's own, the extension's page in a frame.
@@ -1087,9 +1135,8 @@ String LegacyExtensionContent::extensionKeyForWorld(WebFrame& frame, WebCore::DO
     return extensionKeyForURL(document->url());
 }
 
-void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCore::DOMWrapperWorld& world)
+void LegacyExtensionContent::installAPIInFrame(WebFrame& frame, WebCore::DOMWrapperWorld& world)
 {
-    userContentDidChange();
     auto extensionKey = extensionKeyForWorld(frame, world);
     if (extensionKey.isEmpty())
         return;
@@ -1102,28 +1149,32 @@ void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCo
         return;
     // The main world of a frame showing an extension page is that page; any other world is a content script.
     auto kind = world.isNormal() ? LegacyExtensions::ContextKind::Host : LegacyExtensions::ContextKind::Content;
-    // Content scripts reach closed shadow roots through browser.dom.openOrClosedShadowRoot.
-    if (kind == LegacyExtensions::ContextKind::Content)
-        world.setClosedShadowRootIsExposedForExtensions();
     String root;
     if (kind == LegacyExtensions::ContextKind::Content) {
         auto roots = contentWorldRoots(world);
         if (!roots.isEmpty())
             root = roots.last();
     }
+    if (std::ranges::any_of(extensionContexts(), [&](auto& context) {
+        return context.document == document.get() && context.world == &world && context.globalObject.get() == globalObject && context.root == root;
+    }))
+        return;
+    // Content scripts reach closed shadow roots through browser.dom.openOrClosedShadowRoot.
+    if (kind == LegacyExtensions::ContextKind::Content)
+        world.setClosedShadowRootIsExposedForExtensions();
     if (!LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(kind), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey, world, root }))
         return;
     extensionContexts().removeAllMatching([&](auto& context) {
         return context.document == document.get() && context.world == &world;
     });
-    RefPtr<BackForwardCacheObserver> backForwardCacheObserver;
+    RefPtr<ContextDocumentObserver> documentObserver;
     for (auto& context : extensionContexts()) {
         if (context.document == document.get())
-            backForwardCacheObserver = context.backForwardCacheObserver;
+            documentObserver = context.documentObserver;
     }
-    if (!backForwardCacheObserver)
-        backForwardCacheObserver = BackForwardCacheObserver::create(*document, frame.frameID(), extensionKey);
-    extensionContexts().append(ExtensionContext { *document, frame.frameID(), extensionKey, world, root, kind == LegacyExtensions::ContextKind::Content, isContextLive(world, root), WTF::move(backForwardCacheObserver) });
+    if (!documentObserver)
+        documentObserver = ContextDocumentObserver::create(*document, frame.frameID(), extensionKey);
+    extensionContexts().append(ExtensionContext { *document, frame.frameID(), extensionKey, world, JSC::Weak<JSC::JSGlobalObject> { globalObject }, root, kind == LegacyExtensions::ContextKind::Content, isContextLive(world, root), WTF::move(documentObserver) });
 }
 
 void LegacyExtensionContent::insertStyleSheet(WebCore::Document& document, const String& extensionKey, WebCore::UserStyleSheet&& styleSheet)
@@ -1167,6 +1218,16 @@ void LegacyExtensionContent::invalidateExtensionPage(WebCore::FrameIdentifier fr
         if (!context.isContentScript && context.frameID == frameID && document && document->identifier() == documentID)
             context.isInvalidated = true;
     }
+    // The extension page's media ends with its context.
+    auto isInvalidatedPage = [&](const ContentContextNative& native) {
+        return native.frameID == frameID && native.documentIdentifier == documentID && native.world && native.world->isNormal();
+    };
+    closeMediaSessions([&](auto& session) {
+        return isInvalidatedPage(session.native);
+    });
+    completeHandoffScopes([&](auto& native) {
+        return isInvalidatedPage(native);
+    });
 }
 
 void LegacyExtensionContent::setMimeHandlers(String&& handlersJSON)
@@ -1241,7 +1302,8 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
             world = &scriptingWorld.world->coreWorld();
         }
         if (document && world) {
-            auto* globalObject = coreFrame->script().globalObject(*world);
+            installAPIInFrame(*frame, *world);
+            auto* globalObject = existingGlobalObject(*coreFrame, *world);
             if (globalObject && LegacyExtensions::deliver(*globalObject, message))
                 return;
         }
