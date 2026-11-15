@@ -7105,7 +7105,10 @@ RectEdges<bool> WebPageProxy::rubberBandableEdgesRespectingHistorySwipe(const We
     // The left and right edges are reserved for history swipes, but only until the swipe gesture fails.
     if (wheelEvent.phase() != WebWheelEvent::Phase::None || wheelEvent.momentumPhase() != WebWheelEvent::Phase::None) {
         RefPtr gestureController = ViewGestureController::controllerForPage(identifier());
-        if (!gestureController || !gestureController->canBeginOrContinueSwipe())
+        // AQUAWEBKIT: a legacy implicit-rubber-band client (Safari 7) has no ViewGestureController and tracks the
+        // history swipe itself, starting it from didNotHandleWheelEvent, so its edges stay reserved for the swipe.
+        // if (!gestureController || !gestureController->canBeginOrContinueSwipe())
+        if (gestureController && !gestureController->canBeginOrContinueSwipe())
             return rubberBandableEdges;
     }
 #else
