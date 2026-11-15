@@ -30,6 +30,10 @@
 #include "APIArray.h"
 #include "APIOpenPanelParameters.h"
 #include "WKAPICast.h"
+#if PLATFORM(MAC) // AQUAWEBKIT: Safari 7's accepted MIME types.
+#include "API/C/mac/Safari7OpenPanelMIMETypes.h"
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif // AQUAWEBKIT: closes the Safari 7 includes.
 
 using namespace WebKit;
 
@@ -50,6 +54,11 @@ bool WKOpenPanelParametersGetAllowsMultipleFiles(WKOpenPanelParametersRef parame
 
 WKArrayRef WKOpenPanelParametersCopyAcceptedMIMETypes(WKOpenPanelParametersRef parametersRef)
 {
+#if PLATFORM(MAC)
+    // AQUAWEBKIT: Safari 7 builds its open panel's file filter from these types alone; Safari7OpenPanelMIMETypes.mm says how.
+    if (WTF::MacApplication::isSafari())
+        return toAPILeakingRef(API::Array::createStringArray(WebKit::safari7OpenPanelMIMETypes(*protect(toImpl(parametersRef)))));
+#endif // AQUAWEBKIT: closes the Safari 7 block above.
     return toAPILeakingRef(protect(toImpl(parametersRef))->acceptMIMETypes());
 }
 

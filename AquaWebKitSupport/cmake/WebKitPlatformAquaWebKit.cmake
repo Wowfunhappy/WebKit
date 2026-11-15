@@ -128,6 +128,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/InjectedBundle"
 )
 list(APPEND WebKit_SOURCES
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/C/mac/Safari7OpenPanelMIMETypes.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/Cocoa/_WKTextExtractionItems.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewAquaWebKit.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewToolTip.mm
