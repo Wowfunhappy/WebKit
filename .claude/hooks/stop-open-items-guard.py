@@ -69,9 +69,11 @@ def main():
     except ValueError:
         return
     text = last_assistant_text(payload)
-    # Quoted material (code spans and blocks, block quotes) is not the assistant's own claim.
+    # Quoted material (code spans and blocks, double-quoted phrases, block quotes) is not the assistant's own
+    # claim.
     prose = re.sub(r"```.*?```", "", text, flags=re.S)
     prose = re.sub(r"`[^`\n]*`", "", prose)
+    prose = re.sub(r"\"[^\"\n]{1,80}\"|\u201c[^\u201d\n]{1,80}\u201d", "", prose)
     prose = "\n".join(l for l in prose.splitlines() if not l.lstrip().startswith(">"))
     hits = sorted({m.group(0) for p in PATTERNS for m in re.finditer(p, prose, 0 if p in CASE_SENSITIVE else re.I)})
 
