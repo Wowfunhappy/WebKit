@@ -34,12 +34,6 @@ struct FeaturesGL : FeatureSetBase
         &members,
     };
 
-    FeatureInfo resyncVertexAttribArrayOnDivisorChange = {
-        "resyncVertexAttribArrayOnDivisorChange",
-        FeatureCategory::OpenGLWorkarounds,
-        &members,
-    };
-
     FeatureInfo moveSwizzleAfterDerivative = {
         "moveSwizzleAfterDerivative",
         FeatureCategory::OpenGLWorkarounds,

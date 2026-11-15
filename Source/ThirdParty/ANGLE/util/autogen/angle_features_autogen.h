@@ -323,7 +323,6 @@ enum class Feature
     ResetTexImage2DBaseLevel,
     ResetTexStorage2DBaseLevel,
     ResyncDepthRangeOnClipControl,
-    ResyncVertexAttribArrayOnDivisorChange, // AQUAWEBKIT: native attribute fetch-rate refresh.
     RetainSPIRVDebugInfo,
     RewriteRepeatedAssignToSwizzled,
     RewriteRowMajorMatrices,

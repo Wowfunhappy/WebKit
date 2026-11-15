@@ -22,13 +22,6 @@
             ]
         },
         {
-            "name": "resync_vertex_attrib_array_on_divisor_change",
-            "category": "Workarounds",
-            "description": [
-                "Refresh enabled vertex array state after changing its divisor."
-            ]
-        },
-        {
             "name": "move_swizzle_after_derivative",
             "category": "Workarounds",
             "description": [

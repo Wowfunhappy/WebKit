@@ -2250,13 +2250,11 @@ void InitializeFeatures(const FunctionsGL *functions, angle::FeaturesGL *feature
     bool isMali          = IsARM(vendor);
     bool isHuaweiMaleoon = IsHuaweiMaleoon(functions);
 
-    // AQUAWEBKIT: These native state/compiler workarounds target the 10.9 software renderer.
+    // AQUAWEBKIT: These shader-translator workarounds target the 10.9 software renderer.
     const bool isMavericksSoftwareRenderer =
-        IsApple() && GetMacOSVersion() < OSVersion(10, 10, 0) &&
+        IsApple() &&
         std::string(reinterpret_cast<const char *>(functions->getString(GL_RENDERER))) ==
             "Apple Software Renderer";
-    ANGLE_FEATURE_CONDITION(features, resyncVertexAttribArrayOnDivisorChange,
-                            isMavericksSoftwareRenderer);
     ANGLE_FEATURE_CONDITION(features, moveSwizzleAfterDerivative, isMavericksSoftwareRenderer);
     ANGLE_FEATURE_CONDITION(features, correctCubeMapMajorAxis, isMavericksSoftwareRenderer);
     // AQUAWEBKIT: Fixed native sampler slots avoid 10.9 software-renderer sampler-uniform churn.

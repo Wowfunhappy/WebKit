@@ -323,7 +323,6 @@ constexpr PackedEnumMap<Feature, const char *> kFeatureNames = {{
     {Feature::ResetTexImage2DBaseLevel, "resetTexImage2DBaseLevel"},
     {Feature::ResetTexStorage2DBaseLevel, "resetTexStorage2DBaseLevel"},
     {Feature::ResyncDepthRangeOnClipControl, "resyncDepthRangeOnClipControl"},
-    {Feature::ResyncVertexAttribArrayOnDivisorChange, "resyncVertexAttribArrayOnDivisorChange"}, // AQUAWEBKIT: attribute feature override.
     {Feature::RetainSPIRVDebugInfo, "retainSPIRVDebugInfo"},
     {Feature::RewriteRepeatedAssignToSwizzled, "rewriteRepeatedAssignToSwizzled"},
     {Feature::RewriteRowMajorMatrices, "rewriteRowMajorMatrices"},
