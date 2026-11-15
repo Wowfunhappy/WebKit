@@ -1,5 +1,6 @@
 #import "WCClipperView.h"
 #import <dlfcn.h>
+#import <fcntl.h>
 
 #import <QuartzCore/QuartzCore.h>
 
@@ -66,6 +67,11 @@ extern CGError CGSOrderWindowList(int connection, const int *windows, const int 
 extern CGError CGSGetWindowBounds(int connection, int window, CGRect *bounds);
 extern CGError CGSGetWindowOwner(int connection, int window, int *ownerConnection);
 extern CGError CGSConnectionGetPID(int connection, pid_t *pid);
+// CoreGraphics: the spaces windows lie in, and putting windows into spaces and taking them out.
+extern CFArrayRef CGSCopySpacesForWindows(int connection, int mask, CFArrayRef windows);
+extern void CGSAddWindowsToSpaces(int connection, CFArrayRef windows, CFArrayRef spaces);
+extern void CGSRemoveWindowsFromSpaces(int connection, CFArrayRef windows, CFArrayRef spaces);
+static const int WCAllSpacesMask = 7;
 // The window server's notifications that a window has moved and that its place among the windows has changed,
 // whoever moved or ordered it, for the windows a connection asks about; each request replaces the connection's
 // list.
@@ -97,10 +103,10 @@ static pid_t ownerOfWindow(uint32_t window)
 // away.
 typedef kern_return_t (*WCDockCanShowMenuFunction)(mach_port_t serverPort, int *canShowMenu);
 
-// The Dock keeps a widget dragged out of Dashboard on the desktop, in a window at this level below
-// Dashboard's own windows. Dashboard covers such a widget and never animates it, and nothing tells
-// its process when Dashboard comes and goes.
-static const NSInteger WCDesktopWidgetWindowLevel = 98;
+// The Dock's layout records each widget in Dashboard's layer or out of it, a few seconds after the Dock moves it.
+// Nothing tells the process of a widget out of the layer when Dashboard comes and goes, and the Dock answers it as
+// a desktop widget, also where a relaunched Dock puts its window in Dashboard's space.
+static NSString *const WCDockLayoutDomain = @"com.apple.dashboard";
 
 @implementation WCScriptMessageProxy
 
@@ -279,6 +285,8 @@ typedef struct {
     WCExtensionRuntime *_extensionRuntime;
     WCPlaceholderView *_placeholder;
     WCPageWindow *_pageWindow;
+    // The widget's identifier in the Dock's layout.
+    NSString *_widgetIdentifier;
     BOOL _hasScreenshot;
     pid_t _widgetWindowOwner;
     BOOL _dockAllowsPageWindow;
@@ -570,13 +578,42 @@ static BOOL windowServerFrame(NSWindow *window, NSRect *frame)
     }
     // The page window comes on screen at its place among the widget's windows.
     NSDisableScreenUpdates();
-    if (![_pageWindow isVisible])
+    if (![_pageWindow isVisible]) {
         [_pageWindow orderFront:nil];
+        [self followWidgetWindow];
+    }
     [_pageWindow setAlphaValue:showsClip ? 1 : 0];
     [self orderPageWindowFront];
     NSEnableScreenUpdates();
     if ([[_placeholder window] isKeyWindow])
         [self makePageWindowKey];
+}
+
+- (void)followWidgetWindowLevel
+{
+    NSInteger level = [[_placeholder window] level];
+    if ([_pageWindow level] != level)
+        [_pageWindow setLevel:level];
+}
+
+// The page window takes the widget window's level and spaces as it comes on screen, in the space current at that
+// moment, which during a switch of spaces is the one being left. The windows of Dashboard's overlay lie in no space
+// and show over the current one.
+- (void)followWidgetWindow
+{
+    NSWindow *widgetWindow = [_placeholder window];
+    [self followWidgetWindowLevel];
+    int connection = CGSMainConnectionID();
+    NSArray *pageWindow = @[ @([_pageWindow windowNumber]) ];
+    NSArray *widgetSpaces = CFBridgingRelease(CGSCopySpacesForWindows(connection, WCAllSpacesMask, (__bridge CFArrayRef)@[ @([widgetWindow windowNumber]) ]));
+    NSArray *pageSpaces = CFBridgingRelease(CGSCopySpacesForWindows(connection, WCAllSpacesMask, (__bridge CFArrayRef)pageWindow));
+    if (![widgetSpaces count] || [[NSSet setWithArray:widgetSpaces] isEqualToSet:[NSSet setWithArray:pageSpaces]])
+        return;
+    NSMutableArray *leftSpaces = [pageSpaces mutableCopy];
+    [leftSpaces removeObjectsInArray:widgetSpaces];
+    CGSAddWindowsToSpaces(connection, (__bridge CFArrayRef)pageWindow, (__bridge CFArrayRef)widgetSpaces);
+    if ([leftSpaces count])
+        CGSRemoveWindowsFromSpaces(connection, (__bridge CFArrayRef)pageWindow, (__bridge CFArrayRef)leftSpaces);
 }
 
 // The page window lies directly above the widget window, which leaves the widget's close box in front of it.
@@ -699,7 +736,7 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
     NSRect clipFrame = [_clipView frame];
     NSRect frame = [self convertRect:pageRect fromView:_voidView];
     NSRect snapshotRect = NSOffsetRect(frame, -NSMinX(clipFrame), -NSMinY(clipFrame));
-    [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
+    [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, __unused NSError *error) {
         if (!image || webView != [self shownWebView] || ![_pageCover isHidden]) {
             completionHandler(nil);
             return;
@@ -744,9 +781,30 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
     return [(id<WCDashboardWebView>)[[self controller] dashboardWebView] widget];
 }
 
-- (BOOL)dockAllowsPageWindow
+// The identifiers of the widgets the Dock's layout keeps out of Dashboard's layer.
++ (NSSet *)widgetsOutOfDockLayer
 {
-    if ([[_placeholder window] level] == WCDesktopWidgetWindowLevel)
+    CFPreferencesAppSynchronize((__bridge CFStringRef)WCDockLayoutDomain);
+    NSArray *gadgets = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("layer-gadgets"), (__bridge CFStringRef)WCDockLayoutDomain));
+    NSMutableSet *identifiers = [NSMutableSet set];
+    for (NSDictionary *gadget in gadgets) {
+        NSNumber *inLayer = gadget[@"in-layer"];
+        if (inLayer && ![inLayer boolValue])
+            [identifiers addObject:gadget[@"id"]];
+    }
+    return identifiers;
+}
+
+- (NSString *)widgetIdentifier
+{
+    if (!_widgetIdentifier)
+        _widgetIdentifier = [[self controller] clipIdentifier];
+    return _widgetIdentifier;
+}
+
+- (BOOL)dockAllowsPageWindowWithWidgetsOutOfLayer:(NSSet *)widgetsOutOfLayer
+{
+    if ([widgetsOutOfLayer containsObject:[self widgetIdentifier]])
         return YES;
     static WCDockCanShowMenuFunction canShowMenuFunction;
     if (!canShowMenuFunction)
@@ -763,11 +821,33 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
 // that leaves has its stand-in on screen before the first of them is ordered out.
 static NSHashTable *clipperViews;
 
+// The Dock writes its layout file anew, so the watch follows the file the path names after each write.
++ (void)watchDockLayout
+{
+    NSString *path = [NSString pathWithComponents:@[ NSHomeDirectory(), @"Library", @"Preferences", [WCDockLayoutDomain stringByAppendingPathExtension:@"plist"] ]];
+    int descriptor = open([path fileSystemRepresentation], O_EVTONLY);
+    if (descriptor < 0)
+        return;
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, descriptor, DISPATCH_VNODE_WRITE | DISPATCH_VNODE_EXTEND | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(source, ^{
+        if (dispatch_source_get_data(source) & (DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME)) {
+            dispatch_source_cancel(source);
+            [self watchDockLayout];
+        }
+        [self askDock];
+    });
+    dispatch_source_set_cancel_handler(source, ^{
+        close(descriptor);
+    });
+    dispatch_resume(source);
+}
+
 + (void)observeDashboardForWidgetWindow:(NSWindow *)widgetWindow
 {
     if (clipperViews)
         return;
     clipperViews = [NSHashTable weakObjectsHashTable];
+    [self watchDockLayout];
     Class widgetWindowClass = [widgetWindow class];
     void (^keyWindowDidChange)(NSNotification *) = ^(NSNotification *notification) {
         if ([[notification object] isKindOfClass:widgetWindowClass])
@@ -787,15 +867,30 @@ static NSHashTable *clipperViews;
 
 + (void)askDock
 {
+    // The updates of a pass change the key window, which asks the Dock again: that ask runs as a pass of its own once
+    // the pass ends.
     static BOOL isAsking;
-    if (isAsking)
+    static BOOL asksAgain;
+    if (isAsking) {
+        asksAgain = YES;
         return;
+    }
     isAsking = YES;
+    do {
+        asksAgain = NO;
+        [self askDockOnce];
+    } while (asksAgain);
+    isAsking = NO;
+}
+
++ (void)askDockOnce
+{
+    NSSet *widgetsOutOfLayer = [self widgetsOutOfDockLayer];
     NSMutableArray *changedViews = nil;
     NSMutableData *leavingWindows = [NSMutableData dataWithLength:[clipperViews count] * sizeof(int)];
     int leavingCount = 0;
     for (WCClipperView *view in [clipperViews allObjects]) {
-        if (!view->_pageWindow || [view dockAllowsPageWindow] == view->_dockAllowsPageWindow)
+        if (!view->_pageWindow || [view dockAllowsPageWindowWithWidgetsOutOfLayer:widgetsOutOfLayer] == view->_dockAllowsPageWindow)
             continue;
         if (!changedViews)
             changedViews = [NSMutableArray array];
@@ -815,7 +910,6 @@ static NSHashTable *clipperViews;
     }
     for (WCClipperView *view in changedViews)
         [view updatePageWindow];
-    isAsking = NO;
 }
 
 - (void)showStandIn
@@ -1067,8 +1161,10 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
     if (![_pageWindow isVisible] || ![self showsPageWindow])
         return;
     NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[_pageWindow windowNumber]));
-    if ([[windowsAbove valueForKey:(__bridge NSString *)kCGWindowNumber] containsObject:@([[_placeholder window] windowNumber])])
+    if ([[windowsAbove valueForKey:(__bridge NSString *)kCGWindowNumber] containsObject:@([[_placeholder window] windowNumber])]) {
+        [self followWidgetWindowLevel];
         [self orderPageWindowFront];
+    }
 }
 
 // A screenshot of the widget stands in for it in the widget window, over white where the clip is.
@@ -1947,7 +2043,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         [self setUpContents];
         // Dashboard reports a show only as it opens: a widget made or reloaded while it shows its
         // widgets is shown already.
-        if ([self dockAllowsPageWindow])
+        if ([self dockAllowsPageWindowWithWidgetsOutOfLayer:[WCClipperView widgetsOutOfDockLayer]])
             _hasBeenShown = YES;
         [controller readSettings];
         // A widget set up while Dashboard is away starts as a hidden one.
