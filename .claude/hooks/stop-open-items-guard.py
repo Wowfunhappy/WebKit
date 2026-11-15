@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Stop hook: refuses to let a turn end while the final message admits unfinished work, and tells Claude
-# which phrases did it. After MAX_BLOCKS consecutive refusals in one session the stop goes through and the
-# user sees why, so a false positive cannot loop forever.
+# which phrases did it. A stop while a background command or subagent is still running always goes through:
+# its completion re-invokes Claude. After MAX_BLOCKS consecutive refusals in one session the stop goes
+# through and the user sees why, so a false positive cannot loop forever.
 import json
 import os
 import re
@@ -63,10 +64,50 @@ def last_assistant_text(payload):
     return last
 
 
+NOTIFICATION = re.compile(r"\A\s*<task-notification>\s*<task-id>(\w+)</task-id>.*?<status>(\w+)</status>", re.S)
+FINISHED_STATUSES = {"completed", "failed", "killed", "stopped", "cancelled"}
+
+
+def live_background_tasks(payload):
+    """IDs of background commands and agents launched or resumed in this session with no terminal notice since.
+
+    A launch is a tool result whose structured toolUseResult names a backgroundTaskId, an async agentId or a
+    resumedAgentId; a terminal notice is the queued <task-notification> the harness enqueues for that ID."""
+    path = payload.get("transcript_path")
+    if not path or not os.path.exists(path):
+        return set()
+    live = set()
+    with open(path, encoding="utf-8", errors="replace") as transcript:
+        for line in transcript:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            result = entry.get("toolUseResult")
+            if isinstance(result, dict):
+                task = result.get("backgroundTaskId") or result.get("resumedAgentId")
+                if not task and result.get("status") == "async_launched":
+                    task = result.get("agentId")
+                if isinstance(task, str) and task:
+                    live.add(task)
+                # TaskStop's result; a stopped task enqueues no notification.
+                if isinstance(result.get("task_id"), str) and str(result.get("message", "")).startswith("Successfully stopped"):
+                    live.discard(result["task_id"])
+            if entry.get("type") == "queue-operation" and entry.get("operation") == "enqueue":
+                m = NOTIFICATION.match(entry.get("content") or "")
+                if m and m.group(2) in FINISHED_STATUSES:
+                    live.discard(m.group(1))
+    return live
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
     except ValueError:
+        return
+    # A background command or subagent still running re-invokes Claude when it finishes, so this stop is a
+    # pause, not the end of the work.
+    if live_background_tasks(payload):
         return
     text = last_assistant_text(payload)
     # Quoted material (code spans and blocks, double-quoted phrases, block quotes) is not the assistant's own
