@@ -48,6 +48,6 @@
 - (void)fadeButtonWithOpacity:(float)opacity;
 
 - (NSRect)convertDOMRectToDashboardControlRegion:(NSRect)rect;
-- (void)pageDraggableRects:(void (^)(NSArray *documentRects))completionHandler;
+- (void)pageDraggableRects:(void (^)(NSArray *clipRects))completionHandler;
 
 @end

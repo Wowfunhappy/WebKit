@@ -859,6 +859,10 @@ static JSValue *windowOfView(WebView *view, JSContext *context)
         @"tabs": ^NSArray *(void) {
             return [weakSelf tabTokens];
         },
+        @"activeTab": ^id(void) {
+            WCExtensionRuntime *runtime = weakSelf;
+            return [runtime tokenOfWebView:runtime.shownWebView()] ?: [NSNull null];
+        },
         @"tabURL": ^id(NSString *page) {
             return [weakSelf webViewOfPage:page].URL.absoluteString;
         },
@@ -906,14 +910,17 @@ static JSValue *windowOfView(WebView *view, JSContext *context)
     [self updateContentOfController:webView.configuration.userContentController];
 }
 
-// The tokens of the clip's live web views, the newest, the one the clip shows, last.
+- (void)removeWebView:(WKWebView *)webView
+{
+    NSString *token = [self tokenOfWebView:webView];
+    if (token)
+        [_tabs removeObjectForKey:token];
+}
+
+// The tokens of the clip's web views, in the order the clip made them.
 - (NSArray<NSString *> *)tabTokens
 {
-    NSMutableArray *tokens = [NSMutableArray array];
-    for (NSString *token in _tabs.keyEnumerator.allObjects) {
-        if ([_tabs objectForKey:token])
-            [tokens addObject:token];
-    }
+    NSMutableArray *tokens = [_tabs.keyEnumerator.allObjects mutableCopy];
     [tokens sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
         return [@(a.integerValue) compare:@(b.integerValue)];
     }];

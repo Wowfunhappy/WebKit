@@ -107,8 +107,8 @@ Object.defineProperties(browserWindow, {
     tabs: { get: () => native.tabs().map(tabForToken), enumerable: true },
     activeTab: {
         get: () => {
-            const tokens = native.tabs();
-            return tokens.length ? tabForToken(tokens[tokens.length - 1]) : null;
+            const token = native.activeTab();
+            return token ? tabForToken(token) : null;
         },
         enumerable: true,
     },

@@ -1050,6 +1050,7 @@
             baseScroll: null,
             place: { x: rect.x, y: rect.y },
             userScrolled: false,
+            paused: false,
             scheduled: false,
             nextSearch: 0,
             searchTimer: 0,
@@ -1096,7 +1097,7 @@
         function check()
         {
             follower.scheduled = false;
-            if (clipFollower !== follower || follower.userScrolled)
+            if (clipFollower !== follower || follower.userScrolled || follower.paused)
                 return;
             const place = placeOfElement();
             if (!place || (place.x === follower.place.x && place.y === follower.place.y))
@@ -1124,19 +1125,36 @@
             takeElement(element, { x: rect.x, y: rect.y }, element ? layoutOffset(element) : null, element ? scrollOffsets(element) : null);
         }
         const mutationObserver = new MutationObserver(schedule);
-        mutationObserver.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
         const resizeObserver = new ResizeObserver(schedule);
-        resizeObserver.observe(document.documentElement);
-        window.addEventListener('resize', schedule);
-        window.addEventListener('wheel', userScroll, { capture: true, passive: true });
-        window.addEventListener('keydown', userScroll, true);
-        follower.stop = () => {
+        // A paused follower hears of no change to the page, and goes on hearing the user scroll.
+        function observeChanges()
+        {
+            mutationObserver.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+            resizeObserver.observe(document.documentElement);
+            window.addEventListener('resize', schedule);
+        }
+        function stopObservingChanges()
+        {
+            follower.paused = true;
             mutationObserver.disconnect();
             resizeObserver.disconnect();
             window.removeEventListener('resize', schedule);
+            clearTimeout(follower.searchTimer);
+            follower.searchTimer = 0;
+        }
+        observeChanges();
+        window.addEventListener('wheel', userScroll, { capture: true, passive: true });
+        window.addEventListener('keydown', userScroll, true);
+        follower.pause = stopObservingChanges;
+        follower.resume = () => {
+            follower.paused = false;
+            observeChanges();
+            schedule();
+        };
+        follower.stop = () => {
+            stopObservingChanges();
             window.removeEventListener('wheel', userScroll, { capture: true, passive: true });
             window.removeEventListener('keydown', userScroll, true);
-            clearTimeout(follower.searchTimer);
         };
         clipFollower = follower;
         schedule();
@@ -1155,6 +1173,24 @@
     {
         stopSeekingSignedElement();
         stopClipFollower();
+    }
+
+    // The page the clip shows while its reload runs under it neither follows the clip's element nor looks
+    // for the signed element; the page the clip goes on showing takes both up again where they were.
+    function pauseFollowingClipElement()
+    {
+        if (clipFollower)
+            clipFollower.pause();
+        if (signedElementSeeker)
+            signedElementSeeker.pause();
+    }
+
+    function resumeFollowingClipElement()
+    {
+        if (clipFollower)
+            clipFollower.resume();
+        if (signedElementSeeker)
+            signedElementSeeker.resume();
     }
 
     // A clip placed on a likelier element of its kind goes on looking for the signed element as the page
@@ -1179,11 +1215,26 @@
             placeElement(plan);
             postToPlugIn({ type: 'clipElementIdentified', rect: publicRect(plan.place) });
         }
-        seeker.observer = new MutationObserver(() => {
+        function scheduleCheck()
+        {
             if (!seeker.timer)
                 seeker.timer = setTimeout(check, Math.max(0, seeker.nextCheck - performance.now()));
-        });
-        seeker.observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+        }
+        function observe()
+        {
+            seeker.observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+        }
+        seeker.observer = new MutationObserver(scheduleCheck);
+        seeker.pause = () => {
+            seeker.observer.disconnect();
+            clearTimeout(seeker.timer);
+            seeker.timer = 0;
+        };
+        seeker.resume = () => {
+            observe();
+            scheduleCheck();
+        };
+        observe();
         signedElementSeeker = seeker;
     }
 
@@ -1263,8 +1314,11 @@
         return nodes;
     }
 
+    // The draggable elements' rects in the viewport.
     function draggableRects()
     {
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
         const boundingBox = createMeasurer();
         const rects = [];
         forEachNode(document, node => {
@@ -1273,7 +1327,7 @@
             const box = boundingBox(node);
             if (box.width === 0 && box.height === 0)
                 return;
-            rects.push(makeRect(box.x, box.y, box.width, box.height));
+            rects.push(makeRect(box.x - scrollX, box.y - scrollY, box.width, box.height));
         });
         return rects;
     }
@@ -1310,6 +1364,16 @@
         postToPlugIn({ type: 'documentSize', width, height });
     }
 
+    // Where the page is scrolled and how large its document is, as the plug-in hears of them from now on.
+    function geometry()
+    {
+        reportedScrollX = window.scrollX;
+        reportedScrollY = window.scrollY;
+        reportedDocumentWidth = document.documentElement.scrollWidth;
+        reportedDocumentHeight = document.documentElement.scrollHeight;
+        return { x: reportedScrollX, y: reportedScrollY, width: reportedDocumentWidth, height: reportedDocumentHeight };
+    }
+
     function scrollToPoint(point)
     {
         window.scrollTo(point.x, point.y);
@@ -1340,6 +1404,9 @@
         whenImagesInRectLoad,
         followClipElement,
         stopFollowingClipElement,
+        pauseFollowingClipElement,
+        resumeFollowingClipElement,
+        geometry,
         snapNodes,
         draggableRects,
     });

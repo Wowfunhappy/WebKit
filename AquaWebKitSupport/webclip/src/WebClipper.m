@@ -837,9 +837,9 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
 
 - (void)draggableControlRegions:(void (^)(NSArray *rects))completionHandler
 {
-    [_webClipperView pageDraggableRects:^(NSArray *documentRects) {
+    [_webClipperView pageDraggableRects:^(NSArray *clipRects) {
         NSMutableArray *regions = [[NSMutableArray alloc] init];
-        for (NSValue *rect in documentRects)
+        for (NSValue *rect in clipRects)
             [regions addObject:[NSValue valueWithRect:[_webClipperView convertDOMRectToDashboardControlRegion:[rect rectValue]]]];
         completionHandler(regions);
     }];

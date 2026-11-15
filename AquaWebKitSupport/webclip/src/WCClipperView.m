@@ -262,6 +262,18 @@ static NSRect rectFromPageRect(id value)
     return NSMakeRect([rect[@"x"] doubleValue], [rect[@"y"] doubleValue], [rect[@"width"] doubleValue], [rect[@"height"] doubleValue]);
 }
 
+// Where the clip lies in a page and how far the page scrolls, the clip's size, and the clip's saved place.
+typedef struct {
+    NSPoint pageScroll;
+    NSPoint pageScrollTarget;
+    BOOL hasPageScrollTarget;
+    NSPoint clipViewportOrigin;
+    NSSize documentSize;
+    NSSize clipSize;
+    NSRect savedClipRect;
+    NSPoint savedPageScroll;
+} WCPagePlace;
+
 @implementation WCClipperView {
     // The clip's copy of Safari's extensions at work, once the clip has a copy.
     WCExtensionRuntime *_extensionRuntime;
@@ -287,8 +299,12 @@ static NSRect rectFromPageRect(id value)
     NSTimer *_progressTimer;
     NSView *_resizer;
     WKWebView *_previousPageView;
-    // Where the previous page lies in the clip view.
+    // Where the previous page lies in the clip view, and its place, signature and load start, which the
+    // clip takes back when it goes on showing that page.
     NSPoint _previousPageOffset;
+    WCPagePlace _previousPagePlace;
+    NSDictionary *_previousPageSignature;
+    NSTimeInterval _previousPageLoadStart;
     WCSnapper *_snapper;
     NSTextField *_statusTextField;
     WCVoidView *_voidView;
@@ -323,7 +339,9 @@ static NSRect rectFromPageRect(id value)
     BOOL _loadError;
     BOOL _hasBeenShown;
     BOOL _transitionInProgress;
+    // What a flip in progress holds back: a placement's rect, or else a size the clip takes where it is.
     NSRect _clipRectAfterTransition;
+    NSSize _clipSizeAfterTransition;
     NSPoint _pageScroll;
     NSPoint _pageScrollTarget;
     BOOL _hasPageScrollTarget;
@@ -819,12 +837,22 @@ static NSHashTable *clipperViews;
         [widget hasKeyFocus:YES updateWindowState:NO];
 }
 
-// The widget window passes these events to its widget.
+// The widget window passes these events to its widget. A press, a key or scrolling that goes to the
+// previous page makes it the page the clip keeps.
 - (void)pageWindowWillSendEvent:(NSEvent *)event
 {
     NSEventType type = [event type];
     if (type == NSMouseEntered || type == NSKeyDown)
         [[self dashboardWidget] receivedMouseOrKeyDown];
+    if (!_previousPageView)
+        return;
+    NSView *target = nil;
+    if (type == NSLeftMouseDown || type == NSRightMouseDown || type == NSOtherMouseDown || type == NSScrollWheel)
+        target = [[_pageWindow contentView] hitTest:[event locationInWindow]];
+    else if (type == NSKeyDown && [[_pageWindow firstResponder] isKindOfClass:[NSView class]])
+        target = (NSView *)[_pageWindow firstResponder];
+    if ([target isDescendantOf:_previousPageView])
+        [self keepPreviousPage];
 }
 
 // The key equivalents Dashboard's widget view answers in a widget: Command-C, -X, -V and -A edit the
@@ -1475,6 +1503,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
     _isEditingCameraPosition = editing;
     if (editing) {
         _clipRectAfterTransition = NSZeroRect;
+        _clipSizeAfterTransition = NSZeroSize;
         [self callPageFunction:@"snapNodes" argument:nil completionHandler:^(id nodes) {
             if (_isEditingCameraPosition && [nodes isKindOfClass:[NSArray class]])
                 _snapper = [[WCSnapper alloc] initWithNodes:nodes];
@@ -1667,6 +1696,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
 {
     if (_transitionInProgress) {
         _clipRectAfterTransition = rect;
+        _clipSizeAfterTransition = NSZeroSize;
         return;
     }
     if (!NSEqualRects(rect, NSZeroRect)) {
@@ -1821,6 +1851,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
                 BOOL edits = _editsWhenReloaded;
                 [self clearScreenshot];
                 _shouldClearScreenshotOnRentry = NO;
+                [self updateDashboardControlRegions];
                 if (edits)
                     [self editCameraPosition];
             });
@@ -2160,9 +2191,10 @@ static NSPoint pageScrollFromResult(id result)
         return;
     }
     NSPoint target = _pageScrollTarget;
+    WKWebView *webView = _webView;
     [self callPageFunction:@"scrollToPoint" argument:@{ @"x": @(target.x), @"y": @(target.y) } completionHandler:^(id result) {
         NSPoint actual = pageScrollFromResult(result);
-        if (!isnan(actual.x))
+        if (webView == _webView && !isnan(actual.x))
             [self placeWebViewAtPageScroll:actual];
         if (completionHandler)
             completionHandler();
@@ -2283,6 +2315,8 @@ static NSPoint pageScrollFromResult(id result)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_webView setUIDelegate:nil];
     [_webView setNavigationDelegate:nil];
+    [_previousPageView setUIDelegate:nil];
+    [_previousPageView setNavigationDelegate:nil];
 }
 
 - (NSView *)hitTest:(NSPoint)point
@@ -2292,14 +2326,11 @@ static NSPoint pageScrollFromResult(id result)
     // takes them for the clip.
     if ([hit isDescendantOf:_currentTheme] && ![_currentTheme drawsInPlugInView])
         hit = [_clipView hitTest:[self convertPoint:point fromView:[self superview]]] ?: self;
-    // The previous page only shows while its reload runs under it.
-    if (_previousPageView && [hit isDescendantOf:_previousPageView])
-        hit = _clipView;
     NSPoint mouse = [self mouseLocationInView];
     BOOL editing = _isEditingCameraPosition;
     if (hit == _currentTheme) {
         if (!editing)
-            return _webView;
+            return [self shownWebView];
     } else if (!editing) {
         NSRect flipButton = [self convertRect:[_flipButton bounds] fromView:_flipButton];
         if (![_flipButton isHiddenOrHasHiddenAncestor] && NSMouseInRect(mouse, flipButton, [self isFlipped]))
@@ -2443,6 +2474,11 @@ static NSPoint pageScrollFromResult(id result)
 - (void)notifyTransitionIsComplete
 {
     _transitionInProgress = NO;
+    if (!NSEqualSizes(_clipSizeAfterTransition, NSZeroSize)) {
+        NSPoint origin = [_clipView bounds].origin;
+        _clipRectAfterTransition = NSMakeRect(origin.x, origin.y, _clipSizeAfterTransition.width, _clipSizeAfterTransition.height);
+        _clipSizeAfterTransition = NSZeroSize;
+    }
     if (!NSEqualRects(_clipRectAfterTransition, NSZeroRect)) {
         NSRect rect = _clipRectAfterTransition;
         _clipRectAfterTransition = NSZeroRect;
@@ -2518,6 +2554,7 @@ static const NSTimeInterval WCMinimumAutomaticReloadInterval = 5 * 60;
     if (_mediaSuspendedWhileHidden) {
         _mediaSuspendedWhileHidden = NO;
         [_webView setAllMediaPlaybackSuspended:NO completionHandler:nil];
+        [_previousPageView setAllMediaPlaybackSuspended:NO completionHandler:nil];
     }
     BOOL reloadIsDue = [NSDate timeIntervalSinceReferenceDate] - _lastLoadStart >= WCMinimumAutomaticReloadInterval;
     if ((_reloadsAtShow || _loadError) && reloadIsDue && !_isLoading && !_isEditingCameraPosition) {
@@ -2531,17 +2568,20 @@ static const NSTimeInterval WCMinimumAutomaticReloadInterval = 5 * 60;
 }
 
 // The page loads again in a new web view under the one the clip shows, which stays as it is, live, until
-// the reloaded page is set up at the clip's place: then the new page takes over.
+// the reloaded page is set up at the clip's place: then the new page takes over. The previous page stays
+// instead once it is used, or when it plays audio as Dashboard hides.
 - (void)reloadBehindPage
 {
     _reloadsAtFront = NO;
     WKWebView *previous = _webView;
     if (previous && !_previousPageView && !_loadError && [_pageCover isHidden]) {
-        [self callPageFunction:@"stopFollowingClipElement" argument:nil completionHandler:^(id) { }];
-        [previous setNavigationDelegate:nil];
-        [previous setUIDelegate:nil];
+        [self callPageFunction:@"pauseFollowingClipElement" argument:nil completionHandler:^(id) { }];
         NSPoint clipOrigin = [_clipView bounds].origin;
         _previousPageOffset = NSMakePoint(NSMinX([previous frame]) - clipOrigin.x, NSMinY([previous frame]) - clipOrigin.y);
+        WebClipper *controller = [self controller];
+        _previousPagePlace = (WCPagePlace) { _pageScroll, _pageScrollTarget, _hasPageScrollTarget, _clipViewportOrigin, _documentSize, [_clipView frame].size, [controller clipRect], [controller pageScroll] };
+        _previousPageSignature = [controller clipSignature];
+        _previousPageLoadStart = _lastLoadStart;
         _previousPageView = previous;
         [self createWebViewWithSize:[previous frame].size];
         [_voidView addSubview:_webView positioned:NSWindowBelow relativeTo:previous];
@@ -2560,14 +2600,90 @@ static const NSTimeInterval WCMinimumAutomaticReloadInterval = 5 * 60;
     [_previousPageView setFrameOrigin:NSMakePoint(clipOrigin.x + _previousPageOffset.x, clipOrigin.y + _previousPageOffset.y)];
 }
 
+- (void)closeWebView:(WKWebView *)webView
+{
+    [_extensionRuntime removeWebView:webView];
+    [webView setNavigationDelegate:nil];
+    [webView setUIDelegate:nil];
+    [webView stopLoading:nil];
+    [webView _close];
+    [webView removeFromSuperview];
+}
+
 - (void)closePreviousPage
 {
     _editsWhenReloaded = NO;
     WKWebView *previous = _previousPageView;
     _previousPageView = nil;
-    [previous stopLoading:nil];
-    [previous _close];
-    [previous removeFromSuperview];
+    [self closeWebView:previous];
+}
+
+// The clip goes on showing the previous page: the reload under it goes away, and the page takes back its
+// place, the clip's size and saved place and signature, and its load start. The page has gone on running,
+// so its scroll and document size come from the page.
+- (void)keepPreviousPage
+{
+    WKWebView *previous = _previousPageView;
+    _previousPageView = nil;
+    [self closeWebView:_webView];
+    _webView = previous;
+
+    _pageScroll = _previousPagePlace.pageScroll;
+    _pageScrollTarget = _previousPagePlace.pageScrollTarget;
+    _hasPageScrollTarget = _previousPagePlace.hasPageScrollTarget;
+    _clipViewportOrigin = _previousPagePlace.clipViewportOrigin;
+    _documentSize = _previousPagePlace.documentSize;
+    _lastLoadStart = _previousPageLoadStart;
+    _isLoading = NO;
+    _loadError = NO;
+    _clipHasContent = YES;
+    _shouldClearScreenshotOnRentry = NO;
+    _clipRectAfterTransition = NSZeroRect;
+    _clipSizeAfterTransition = NSZeroSize;
+    [_errorView removeFromSuperview];
+    _errorView = nil;
+    [_reloadSpinner removeFromSuperview];
+    _reloadSpinner = nil;
+
+    // The clip takes its size back the way -adjustClipToRect: sizes it: once a flip in progress completes.
+    NSSize clipSize = [_clipView frame].size;
+    if (_transitionInProgress)
+        _clipSizeAfterTransition = _previousPagePlace.clipSize;
+    else if (!NSEqualSizes(clipSize, _previousPagePlace.clipSize)) {
+        NSSize widgetSize = [self adjustedFrameSizeFromOldClipSize:clipSize toSize:_previousPagePlace.clipSize];
+        if ([self isBacksideShowing]) {
+            [self setClipperSize:[self constrainedSizeFromSize:widgetSize]];
+            [_clipView setFrame:[self clipViewFrame]];
+        } else
+            [self setWidgetWindowSize:widgetSize keepClipperCentered:NO];
+    }
+    WebClipper *controller = [self controller];
+    [controller setClipRect:_previousPagePlace.savedClipRect];
+    [controller setPageScroll:_previousPagePlace.savedPageScroll];
+    [controller setClipSignature:_previousPageSignature];
+    [controller savePreferencesToDisk];
+    _previousPageSignature = nil;
+
+    [self sizeWebView];
+    [self placeWebViewAtPageScroll:_pageScroll];
+    [self updateDashboardControlRegions];
+    if (_hasScreenshot)
+        [self removeScreenshot];
+    else
+        [self updateFlipperVisibility];
+
+    [self callPageFunction:@"resumeFollowingClipElement" argument:nil completionHandler:^(id) { }];
+    [self callPageFunction:@"geometry" argument:nil completionHandler:^(id result) {
+        if (previous != _webView || ![result isKindOfClass:[NSDictionary class]])
+            return;
+        _documentSize = NSMakeSize([result[@"width"] doubleValue], [result[@"height"] doubleValue]);
+        [self placeWebViewAtPageScroll:pageScrollFromResult(result)];
+        [self layoutPageViewport];
+    }];
+    if (_editsWhenReloaded) {
+        _editsWhenReloaded = NO;
+        [self editCameraPosition];
+    }
 }
 
 - (WKWebView *)currentWebView
@@ -2612,7 +2728,9 @@ static const CGFloat WCReloadSpinnerSize = 16;
     [self updatePageWindow];
     if (_disableAutoRefresh || !_webView)
         return;
-    BOOL playsAudio = [_webView _isPlayingAudio];
+    BOOL playsAudio = [[self shownWebView] _isPlayingAudio];
+    if (playsAudio && _previousPageView)
+        [self keepPreviousPage];
     [self suspendMediaWhileHidden];
     if (playsAudio || _isEditingCameraPosition)
         return;
@@ -2625,6 +2743,7 @@ static const CGFloat WCReloadSpinnerSize = 16;
         return;
     _mediaSuspendedWhileHidden = YES;
     [_webView setAllMediaPlaybackSuspended:YES completionHandler:nil];
+    [_previousPageView setAllMediaPlaybackSuspended:YES completionHandler:nil];
 }
 
 - (void)didFlipWidget:(BOOL)toFront
@@ -2650,6 +2769,10 @@ static const CGFloat WCReloadSpinnerSize = 16;
     NSString *extensionsDirectory = [[self controller] safariExtensionsDirectory];
     if (!_extensionRuntime && extensionsDirectory && [[NSFileManager defaultManager] fileExistsAtPath:extensionsDirectory]) {
         _extensionRuntime = [WCExtensionRuntime runtimeOfClip:[[self controller] clipIdentifier] directory:extensionsDirectory];
+        __weak WCClipperView *weakSelf = self;
+        _extensionRuntime.shownWebView = ^WKWebView *(void) {
+            return [weakSelf shownWebView];
+        };
         [_extensionRuntime addWebView:_webView];
     }
     _documentSize = pageSize;
@@ -2715,28 +2838,39 @@ static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)callPageFunction:(NSString *)name argument:(id)argument completionHandler:(void (^)(id result))completionHandler
 {
-    if (!_webView || !_clipWorld) {
+    [self callPageFunction:name argument:argument inWebView:_webView completionHandler:completionHandler];
+}
+
+- (void)callPageFunction:(NSString *)name argument:(id)argument inWebView:(WKWebView *)webView completionHandler:(void (^)(id result))completionHandler
+{
+    if (!webView || !_clipWorld) {
         completionHandler(nil);
         return;
     }
     NSString *body = [NSString stringWithFormat:@"return window.__webClip ? window.__webClip.%@(argument) : null;", name];
-    [_webView callAsyncJavaScript:body arguments:@{ @"argument": argument ?: [NSNull null] } inFrame:nil inContentWorld:_clipWorld completionHandler:^(id result, NSError *error) {
+    [webView callAsyncJavaScript:body arguments:@{ @"argument": argument ?: [NSNull null] } inFrame:nil inContentWorld:_clipWorld completionHandler:^(id result, NSError *error) {
         completionHandler(error || [result isKindOfClass:[NSNull class]] ? nil : result);
     }];
 }
 
-- (void)pageDraggableRects:(void (^)(NSArray *documentRects))completionHandler
+// The rects of the shown page's draggable elements, in the clip view: the page measures them in its
+// viewport, which is its web view.
+- (void)pageDraggableRects:(void (^)(NSArray *clipRects))completionHandler
 {
-    [self callPageFunction:@"draggableRects" argument:nil completionHandler:^(id rects) {
-        NSMutableArray *documentRects = [NSMutableArray array];
+    WKWebView *webView = [self shownWebView];
+    [self callPageFunction:@"draggableRects" argument:nil inWebView:webView completionHandler:^(id rects) {
+        if (webView != [self shownWebView])
+            return;
+        NSPoint viewportOrigin = [webView frame].origin;
+        NSMutableArray *clipRects = [NSMutableArray array];
         if ([rects isKindOfClass:[NSArray class]]) {
             for (id rect in rects) {
-                NSRect documentRect = rectFromPageRect(rect);
-                if (!NSEqualSizes(documentRect.size, NSZeroSize))
-                    [documentRects addObject:[NSValue valueWithRect:documentRect]];
+                NSRect viewportRect = rectFromPageRect(rect);
+                if (!NSEqualSizes(viewportRect.size, NSZeroSize))
+                    [clipRects addObject:[NSValue valueWithRect:NSOffsetRect(viewportRect, viewportOrigin.x, viewportOrigin.y)]];
             }
         }
-        completionHandler(documentRects);
+        completionHandler(clipRects);
     }];
 }
 
@@ -2769,6 +2903,8 @@ static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation
 {
+    if (webView != _webView)
+        return;
     _isLoading = YES;
     _clipHasContent = NO;
     [self clearScreenshotIfNeeded];
@@ -2776,6 +2912,8 @@ static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation
 {
+    if (webView != _webView)
+        return;
     _loadError = NO;
     [self dismissError];
     [self placeWebViewAtPageScroll:NSZeroPoint];
@@ -2791,6 +2929,8 @@ static const CGFloat WCReloadSpinnerSize = 16;
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     [_extensionRuntime webViewDidNavigate:webView];
+    if (webView != _webView)
+        return;
     _isLoading = NO;
     [self stopProgressTimer];
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
@@ -2821,17 +2961,25 @@ static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error
 {
-    [self failedNavigationWithError:error];
+    if (webView == _webView)
+        [self failedNavigationWithError:error];
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error
 {
-    [self failedNavigationWithError:error];
+    if (webView == _webView)
+        [self failedNavigationWithError:error];
 }
 
+// A previous page whose process ends leaves the clip to the page reloading under it.
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
-    [self reload:nil];
+    if (webView == _previousPageView) {
+        [self closePreviousPage];
+        [self updateFlipperVisibility];
+        [self updateDashboardControlRegions];
+    } else
+        [self reload:nil];
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler

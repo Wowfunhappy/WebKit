@@ -24,8 +24,12 @@
 // The runtime of the clip's copy in the directory, running from its first use.
 + (instancetype)runtimeOfClip:(NSString *)clipIdentifier directory:(NSString *)directory;
 
-// A web view of the clip, a tab of the clip's one browser window to the extensions.
+// A web view of the clip, a tab of the clip's one browser window to the extensions, and one going away.
 - (void)addWebView:(WKWebView *)webView;
+- (void)removeWebView:(WKWebView *)webView;
+
+// The web view the clip shows: the window's active tab.
+@property (nonatomic, copy) WKWebView *(^shownWebView)(void);
 
 // A main-frame navigation of a web view of the clip: whether it goes ahead, and that its page has loaded.
 - (BOOL)webView:(WKWebView *)webView shouldNavigateToURL:(NSURL *)url;
