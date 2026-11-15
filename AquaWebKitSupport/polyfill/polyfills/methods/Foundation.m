@@ -1064,26 +1064,35 @@ static NSCache *wk_cookieProjectionCache(NSHTTPCookieStorage *companion)
     }
 }
 
-static BOOL wk_companionHasRecordsForURL(NSHTTPCookieStorage *companion, NSURL *url)
+// Whether |storage| holds a record whose domain domain-matches the host |url| names. CFNetwork's indexed walk
+// names the host itself and then "." before each parent domain; a Domain cookie for the host itself is
+// indexed under "." before the host.
+static BOOL wk_cookieStorageHasRecordsForHost(CFHTTPCookieStorageRef storage, NSURL *url)
 {
-    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(companion);
     NSString *host = url.isFileURL ? @"^filecookies^" : wk_jarHostForURLHost(url.host);
     const char *domain = host.UTF8String;
     BOOL needsLowercase = NO;
-    for (const unsigned char *c = (const unsigned char *)domain; c && *c; ++c) {
-        if (*c >= 0x80)
-            return wk_cookieStorageHasRecordsForURL(storage, (CFURLRef)url);
-        needsLowercase |= *c >= 'A' && *c <= 'Z';
-    }
+    for (const unsigned char *c = (const unsigned char *)domain; c && *c; ++c)
+        needsLowercase |= *c >= 0x80 || (*c >= 'A' && *c <= 'Z');
     if (needsLowercase)
         domain = host.lowercaseString.UTF8String;
-    return wk_cookieStorageHasRecordsForDomain(storage, domain);
+    if (!domain)
+        return NO;
+    if (wk_cookieStorageHasRecordsForDomain(storage, domain))
+        return YES;
+    size_t length = strlen(domain);
+    char buffer[256];
+    NSMutableData *heap = length + 2 > sizeof(buffer) ? [NSMutableData dataWithLength:length + 2] : nil;
+    char *dotted = heap ? (char *)heap.mutableBytes : buffer;
+    dotted[0] = '.';
+    memcpy(dotted + 1, domain, length + 1);
+    return wk_cookieStorageHasRecordsForDomain(storage, dotted);
 }
 
 static NSArray<NSHTTPCookie *> *wk_partitionedCookies(NSHTTPCookieStorage *storage, NSURL *url, NSString *partition)
 {
     NSHTTPCookieStorage *companion = wk_partitionedCookieStorage(wk_cfCookieStorageOf(storage));
-    if (url && !wk_companionHasRecordsForURL(companion, url))
+    if (url && !wk_cookieStorageHasRecordsForHost(wk_cfCookieStorageOf(companion), url))
         return @[];
     struct wk_original original = wk_original_of(companion, url ? @selector(cookiesForURL:) : @selector(cookies));
     NSArray *stored = url ? ((NSArray *(*)(id, SEL, NSURL *))original.imp)(companion, original.sel, url)
@@ -1443,13 +1452,12 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         if (wk_cookieWithUsableDomain(cookie, url))
             [usable addObject:cookie];
     }
-    // The native main-document policy consults a 2013 PSL. Apply its registrable-domain
-    // boundary with the current PSL. OnlyFromMainDocumentDomain admits partitioned cookies and
-    // unpartitioned cookies for a host with existing records, including expired or path-restricted
-    // records. ExclusivelyFromMainDocumentDomain rejects every cross-site write.
+    // The main-document policy, with the current PSL. OnlyFromMainDocumentDomain admits partitioned
+    // cookies and unpartitioned cookies for a host with existing records, including expired or
+    // path-restricted records. ExclusivelyFromMainDocumentDomain rejects every cross-site write.
     if ((policy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain || policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain) && mainDocumentURL
         && wk_hostsHaveDifferentRegistrableDomains((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
-        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(self), (__bridge CFURLRef)url))) {
+        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_cookieStorageHasRecordsForHost(wk_cfCookieStorageOf(self), url))) {
         if (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain)
             return;
         NSMutableArray<NSHTTPCookie *> *partitioned = [NSMutableArray array];
@@ -1473,7 +1481,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         [partitionedRecords addObject:record];
     }
     if (unpartitioned.count)
-        WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), unpartitioned, url, mainDocumentURL);
+        // 10.9 reads the main document only for its own 2013-PSL policy check, which the decision above replaces.
+        WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), unpartitioned, url, nil);
     wk_discardExpiredCookies(self, unpartitioned);
     if (partitionedRecords.count)
         wk_discardExpiredCookies(wk_partitionedCookieStorage(storage), partitionedRecords);

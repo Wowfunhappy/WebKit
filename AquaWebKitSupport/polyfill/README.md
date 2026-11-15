@@ -140,10 +140,10 @@ is compiled into both the polyfill archive and the dependency gap archive. Its u
 - `polyfills/shared/audiounit_max_frames.c` resolves the native AudioUnit and CoreAudio
   entry points for output-unit buffer-size compatibility.
 
-- The cookie-policy helper in `CFNetwork.c` resolves `HTTPCookieStorage::someCookiesAreSetForURL`
-  for native indexed domain-existence queries. Its CF object payload follows the 64-bit
-  CFRuntimeBase, as in the native storage wrappers. Expiry and Path are checked separately
-  by the Foundation policy adapter.
+- The cookie-policy helper in `CFNetwork.c` resolves `HTTPCookieStorage::someCookiesAreSetForDomain`
+  for native indexed domain-existence queries; the Foundation helper probes the host and then the host
+  with a leading dot. Its CF object payload follows the 64-bit CFRuntimeBase, as in the native storage
+  wrappers. Expiry and Path are checked separately by the Foundation policy adapter.
 - The protection-space secure-coding bridge in `CFNetwork.c` (`SerializableArchive::add`), which archives
   the native protection space used by Safari's authentication and certificate APIs.
 - The keyed-coding layer in `methods/FoundationCoding.m`, which resolves Foundation's `_decodeObjectBinary`

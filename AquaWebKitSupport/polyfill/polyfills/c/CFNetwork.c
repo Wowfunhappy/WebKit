@@ -455,22 +455,7 @@ void wk_requestSetExplicitFlags(CFTypeRef request, uint16_t explicitFlags)
 }
 
 // CFNetwork's CFHTTPCookieStorage wrappers pass their CFRuntimeBase payload to HTTPCookieStorage.
-// someCookiesAreSetForURL traverses the native domain index and the storage's inherited base jars.
-bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)
-{
-    static bool (*hasRecords)(const void *, CFURLRef);
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        wk_image image;
-        wk_find_image(kCFNetworkSuffix, &image);
-        hasRecords = wk_symbol_in_image(&image, "__ZN17HTTPCookieStorage23someCookiesAreSetForURLEPK7__CFURL");
-    });
-    if (!storage || !url)
-        return false;
-    return hasRecords((const uint8_t *)storage + kCFPayloadOffset, url);
-}
-
-// The domain entry point is the indexed lookup after CFNetwork's URL host normalization.
+// someCookiesAreSetForDomain looks up |domain| in the native index, then "." before each parent domain.
 bool wk_cookieStorageHasRecordsForDomain(CFTypeRef storage, const char *domain)
 {
     static bool (*hasRecords)(const void *, const char *);
