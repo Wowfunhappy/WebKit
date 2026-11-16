@@ -59,6 +59,8 @@ static int draw(CGColorSpaceRef space, CGImageRef image, CGPatternRef pattern, D
             CFRelease(surface);
         return 0;
     }
+    // A new surface context's contents are undefined until cleared, as ImageBufferIOSurfaceBackend clears them.
+    CGContextClearRect(context, CGRectMake(0, 0, side, side));
     if (pattern) {
         CGColorSpaceRef patternSpace = CGColorSpaceCreatePattern(NULL);
         CGContextSetFillColorSpace(context, patternSpace);

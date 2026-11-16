@@ -62,6 +62,8 @@ static unsigned char *tileToSurface(void (*draw)(CGContextRef, CGRect, CGImageRe
 {
     IOSurfaceRef s = makeSurface();
     CGContextRef c = CGIOSurfaceContextCreate(s, kSide, kSide, 8, 32, space, (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    // A new surface context's contents are undefined until cleared, as ImageBufferIOSurfaceBackend clears them.
+    CGContextClearRect(c, CGRectMake(0, 0, kSide, kSide));
     draw(c, CGRectMake(0, 0, kSide, kSide), image);
     CGContextFlush(c);
     unsigned char *out = malloc(kSide * kSide * 4);
