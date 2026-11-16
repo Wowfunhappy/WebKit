@@ -17,6 +17,13 @@ typedef struct {
     float m31, m32, m33, m34, m35;
     float m41, m42, m43, m44, m45;
 } CAColorMatrix;
+@interface CALayer (BackdropContext)
+- (id)context;
+@end
+@protocol BackdropRenderContext
+- (CGColorSpaceRef)colorSpace;
+- (void)setColorSpace:(CGColorSpaceRef)space;
+@end
 @interface NSValue (CADetails)
 + (NSValue *)valueWithCAColorMatrix:(CAColorMatrix)matrix;
 @end
@@ -390,6 +397,33 @@ int main(void)
             native.filters = chains[i].filters;
             compareBands(chains[i].name, chains[i].everyBand);
         }
+        // A coloured fill made and laid out while the layer is in no context is made again in its context's colour
+        // space when it shows there.
+        CAColorMatrix redFifth = { .2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0 };
+        CAFilter *redScaled = [CAFilter filterWithType:@"colorMatrix"];
+        [redScaled setValue:[NSValue valueWithCAColorMatrix:redFifth] forKey:@"inputColorMatrix"];
+        [backdrop removeFromSuperlayer];
+        runFor(.1);
+        backdrop.filters = native.filters = @[redScaled];
+        [backdrop layoutIfNeeded];
+        [root insertSublayer:backdrop below:expectedFill];
+        compareBands("red scaled by .2, set outside any context", NO);
+
+        // The same inside a container laid out outside any context and attached afterwards.
+        CALayer *holder = [CALayer layer];
+        holder.frame = root.bounds;
+        [backdrop removeFromSuperlayer];
+        runFor(.1);
+        [holder addSublayer:backdrop];
+        backdrop.filters = native.filters = @[redScaled];
+        [holder layoutIfNeeded];
+        [backdrop layoutIfNeeded];
+        [root insertSublayer:holder below:expectedFill];
+        compareBands("red scaled by .2, in a container attached afterwards", NO);
+        [backdrop removeFromSuperlayer];
+        [holder removeFromSuperlayer];
+        [root insertSublayer:backdrop below:expectedFill];
+
         native.filters = nil;
         backdrop.filters = @[colorMatrixFilter(1.6, 0, 1)];
         runFor(.1);
@@ -505,7 +539,8 @@ int main(void)
         CAFilter *second = typed(@"colorContrast", @"inputAmount", @1);
         [second setName:@"filter_1"];
         backdrop.filters = native.filters = @[first, second];
-        double began = [backdrop convertTime:CACurrentMediaTime() fromLayer:nil] - 1.5;
+        double mediaNow = CACurrentMediaTime();
+        double began = [backdrop convertTime:mediaNow fromLayer:nil] - 1.5;
         CABasicAnimation *shorter = [CABasicAnimation animationWithKeyPath:@"filters.filter_0.inputAmount"];
         shorter.fromValue = @1;
         shorter.toValue = @.5;
@@ -519,7 +554,7 @@ int main(void)
         longer.fillMode = kCAFillModeForwards;
         longer.removedOnCompletion = NO;
         for (CALayer *target in @[backdrop, native]) {
-            shorter.beginTime = longer.beginTime = began + [target convertTime:CACurrentMediaTime() fromLayer:nil] - [backdrop convertTime:CACurrentMediaTime() fromLayer:nil];
+            shorter.beginTime = longer.beginTime = began + [target convertTime:mediaNow fromLayer:nil] - [backdrop convertTime:mediaNow fromLayer:nil];
             [target addAnimation:shorter forKey:@"shorter"];
             [target addAnimation:longer forKey:@"longer"];
         }
@@ -551,6 +586,35 @@ int main(void)
             }
         }
 
+        // After the fill is made, the window's context renders in Generic RGB, then in no space (colours unmatched), with
+        // a coloured fill that reproduces its chain on every grey, held, and a paced fill, animated.
+        CAColorMatrix tinted = { .5, 0, 0, 0, .4, 0, .5, 0, 0, 0, 0, 0, .5, 0, .2, 0, 0, 0, 1, 0 };
+        CAFilter *tint = [CAFilter filterWithType:@"colorMatrix"];
+        [tint setValue:[NSValue valueWithCAColorMatrix:tinted] forKey:@"inputColorMatrix"];
+        id<BackdropRenderContext> renderContext = [root context];
+        CGColorSpaceRef shown = CGColorSpaceRetain([renderContext colorSpace]), generic = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
+        backdrop.filters = native.filters = @[tint];
+        runFor(.1);
+        [renderContext setColorSpace:generic];
+        compareBands("tinted .5x, the context's space changed", YES);
+        [renderContext setColorSpace:NULL];
+        compareBands("tinted .5x, the context without a space", YES);
+        CAKeyframeAnimation *unmatched = [CAKeyframeAnimation animationWithKeyPath:@"filters.filter_0.inputColorMatrix"];
+        unmatched.values = channelValues;
+        unmatched.calculationMode = kCAAnimationPaced;
+        unmatched.duration = 1;
+        unmatched.speed = 0;
+        unmatched.timeOffset = .3;
+        backdrop.filters = native.filters = @[identity];
+        [backdrop addAnimation:unmatched forKey:@"unmatched"];
+        [native addAnimation:unmatched forKey:@"unmatched"];
+        compareBands("paced at 0.3, the context without a space", NO);
+        [backdrop removeAllAnimations];
+        [native removeAllAnimations];
+        [renderContext setColorSpace:shown];
+        CGColorSpaceRelease(generic);
+        CGColorSpaceRelease(shown);
+
         // Cumulative repeats, finite and endless, at their third iteration.
         CABasicAnimation *accumulating = [CABasicAnimation animationWithKeyPath:@"filters.filter_0.inputAmount"];
         accumulating.fromValue = @1;
@@ -569,8 +633,9 @@ int main(void)
         accumulating.repeatCount = HUGE_VALF;
         accumulating.speed = 1;
         accumulating.timeOffset = 0;
+        mediaNow = CACurrentMediaTime();
         for (CALayer *target in @[backdrop, native]) {
-            accumulating.beginTime = [target convertTime:CACurrentMediaTime() fromLayer:nil] - 2.5;
+            accumulating.beginTime = [target convertTime:mediaNow fromLayer:nil] - 2.5;
             [target addAnimation:accumulating forKey:@"accumulating"];
         }
         compareBands("cumulative, endless", YES);
@@ -591,8 +656,9 @@ int main(void)
         frozen.timeOffset = .5;
         for (CABasicAnimation *other in @[endless, frozen]) {
             backdrop.filters = native.filters = @[first, second];
+            mediaNow = CACurrentMediaTime();
             for (CALayer *target in @[backdrop, native]) {
-                double now = [target convertTime:CACurrentMediaTime() fromLayer:nil];
+                double now = [target convertTime:mediaNow fromLayer:nil];
                 shorter.beginTime = now - 1.5;
                 other.beginTime = now - 1.5;
                 [target addAnimation:shorter forKey:@"shorter"];
@@ -651,8 +717,9 @@ int main(void)
         reversed.speed = -1;
         reversed.timeOffset = 1;
         backdrop.filters = native.filters = @[named(typed(@"colorContrast", @"inputAmount", @1))];
+        mediaNow = CACurrentMediaTime();
         for (CALayer *target in @[backdrop, native]) {
-            reversed.beginTime = [target convertTime:CACurrentMediaTime() fromLayer:nil] - .3;
+            reversed.beginTime = [target convertTime:mediaNow fromLayer:nil] - .3;
             [target addAnimation:reversed forKey:@"reversed"];
         }
         compareBands("reversed keyframes", YES);
@@ -666,8 +733,9 @@ int main(void)
         stepping.duration = .2;
         stepping.repeatCount = HUGE_VALF;
         backdrop.filters = native.filters = @[first, second];
+        mediaNow = CACurrentMediaTime();
         for (CALayer *target in @[backdrop, native]) {
-            double now = [target convertTime:CACurrentMediaTime() fromLayer:nil];
+            double now = [target convertTime:mediaNow fromLayer:nil];
             shorter.beginTime = stepping.beginTime = now - 1.3;
             [target addAnimation:shorter forKey:@"shorter"];
             [target addAnimation:stepping forKey:@"stepping"];
@@ -688,8 +756,9 @@ int main(void)
         turning.duration = .1;
         turning.repeatCount = HUGE_VALF;
         backdrop.filters = native.filters = @[namedSepia, hue];
+        mediaNow = CACurrentMediaTime();
         for (CALayer *target in @[backdrop, native]) {
-            turning.beginTime = [target convertTime:CACurrentMediaTime() fromLayer:nil] - 7.03;
+            turning.beginTime = [target convertTime:mediaNow fromLayer:nil] - 7.03;
             [target addAnimation:turning forKey:@"turning"];
         }
         compareBands("cumulative hue past 64 periods", NO);

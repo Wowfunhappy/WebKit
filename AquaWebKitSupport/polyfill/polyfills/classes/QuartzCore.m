@@ -6,6 +6,9 @@
 @interface CALayer (BackdropRenderSnapshot)
 - (id)_initWithReference:(CALayer *)layer;
 - (void *)_copyRenderLayer:(void *)context layerFlags:(unsigned)flags commitFlags:(unsigned *)commitFlags;
+- (CGColorSpaceRef)_retainColorSpace;
+- (void)_colorSpaceDidChange;
+- (void)layerDidBecomeVisible:(BOOL)visible;
 @end
 
 @interface CAFilter : NSObject <NSCopying>
@@ -183,18 +186,16 @@ static BOOL backdropFillColor(NSArray *filters, double rgba[4])
     return rgba[3] > 0;
 }
 
-// A layer with filters keeps a colour pair even when it draws nothing, so 10.9 renders `colors` animations on it.
-static CGColorRef backdropCreateFill(NSArray *filters)
+// A layer with filters keeps a colour pair even when it draws nothing, so 10.9 renders `colors` animations on it. The
+// fill is a colour of `space`, the space its layer is rendered in, where the filters it stands for apply.
+static CGColorRef backdropCreateFill(NSArray *filters, CGColorSpaceRef space)
 {
     double rgba[4] = { 0, 0, 0, 0 };
     if (!filters.count)
         return NULL;
     backdropFillColor(filters, rgba);
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     CGFloat components[4] = { rgba[0], rgba[1], rgba[2], rgba[3] };
-    CGColorRef color = CGColorCreate(space, components);
-    CGColorSpaceRelease(space);
-    return color;
+    return CGColorCreate(space, components);
 }
 
 static NSString * const backdropFillAnimationKey = @"wkBackdropFill";
@@ -409,7 +410,7 @@ static double backdropLocalTimeForProgress(CAMediaTimingFunction *function, doub
     return (low + high) / 2;
 }
 
-static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
+static NSArray *backdropFillValues(NSData *samples, CGColorSpaceRef space, NSArray **keyTimes)
 {
     const BackdropSample *sampled = samples.bytes;
     NSUInteger count = samples.length / sizeof(BackdropSample);
@@ -425,7 +426,6 @@ static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
     }
     NSMutableArray *values = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray *times = [NSMutableArray arrayWithCapacity:count];
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     for (NSUInteger i = count; i-- > 0;) {
         if (sampled[i].rgba[3] > 0)
             memcpy(carry, sampled[i].rgba, sizeof(carry));
@@ -435,7 +435,6 @@ static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
         [times insertObject:@(length > 0 ? (sampled[i].time - start) / length : (double)i / (count - 1)) atIndex:0];
         CGColorRelease(color);
     }
-    CGColorSpaceRelease(space);
     *keyTimes = times;
     return values;
 }
@@ -496,18 +495,49 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (void)setFilters:(NSArray *)filters
 {
     NSArray *copy = [filters copy];
-    CGColorRef color = backdropCreateFill(copy);
     [CATransaction lock];
     [_backdropFilters release];
     _backdropFilters = copy;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    [super setColors:color ? @[(id)color, (id)color] : nil];
+    [self updateFillWithFilters:copy];
     [CATransaction commit];
     [CATransaction unlock];
+    [self setNeedsFillAnimation];
+}
+
+// The space Core Animation renders this layer's colours in, where the filters the fill stands for apply: the space of
+// the context showing the layer. A context without a space shows every colour's components unmatched, so a DeviceRGB
+// colour of the same components gives what it shows.
+- (CGColorSpaceRef)copyFillColorSpace
+{
+    CGColorSpaceRef space = [self _retainColorSpace];
+    return space ? space : CGColorSpaceCreateDeviceRGB();
+}
+
+// The fill colour pair, set with the filters so the transaction that sets them shows it, and again at layout in the
+// space the layer is then shown in.
+- (void)updateFillWithFilters:(NSArray *)filters
+{
+    CGColorSpaceRef space = [self copyFillColorSpace];
+    CGColorRef color = backdropCreateFill(filters, space);
+    CGColorSpaceRelease(space);
+    [super setColors:color ? @[(id)color, (id)color] : nil];
     if (color)
         CGColorRelease(color);
+}
+
+- (void)_colorSpaceDidChange
+{
+    [super _colorSpaceDidChange];
     [self setNeedsFillAnimation];
+}
+
+- (void)layerDidBecomeVisible:(BOOL)visible
+{
+    [super layerDidBecomeVisible:visible];
+    if (visible)
+        [self setNeedsFillAnimation];
 }
 
 - (double)currentTime
@@ -548,14 +578,17 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     _fillAnimationNeedsUpdate = NO;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    [self updateFillAnimation];
+    [self updateFillWithFilters:self.filters];
+    CGColorSpaceRef space = [self copyFillColorSpace];
+    [self updateFillAnimationInSpace:space];
+    CGColorSpaceRelease(space);
     [CATransaction commit];
 }
 
 // Mirrors the filter animations into keyframe animations of `colors` over this layer's time: one across their
 // finite span, and, while some never end, a repeating tail of their shared period or a held value. Animations
 // added in this transaction have no begin time yet; they and the mirrors all begin at its commit.
-- (void)updateFillAnimation
+- (void)updateFillAnimationInSpace:(CGColorSpaceRef)space
 {
     [super removeAnimationForKey:backdropFillAnimationKey];
     [super removeAnimationForKey:backdropFillTailKey];
@@ -743,7 +776,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     if (periodicTail) {
         NSData *tailSamples = backdropSampleSpan(tailStart, tailStart + tailLength, anchors, evaluate);
         CAKeyframeAnimation *tail = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-        tail.values = backdropFillValues(tailSamples, &keyTimes);
+        tail.values = backdropFillValues(tailSamples, space, &keyTimes);
         tail.keyTimes = keyTimes;
         tail.beginTime = uncommitted ? 0 : tailStart;
         tail.timeOffset = uncommitted ? fmod(tailLength - fmod(tailStart, tailLength), tailLength) : 0;
@@ -754,7 +787,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     double end = fmax(tailStart, start + backdropSampleResolution);
     NSData *samples = backdropSampleSpan(start, end, anchors, evaluate);
     CAKeyframeAnimation *fill = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-    fill.values = backdropFillValues(samples, &keyTimes);
+    fill.values = backdropFillValues(samples, space, &keyTimes);
     fill.keyTimes = keyTimes;
     fill.beginTime = uncommitted ? 0 : start;
     fill.duration = end - start;
