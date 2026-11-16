@@ -423,6 +423,7 @@ done
 for lib in libc++.1.dylib libc++abi.1.dylib; do
     int_or_die -change @rpath/libc++abi.1.dylib "$JSC_LIBS/libc++abi.1.dylib" "$(s "$JSC_LIBS")/$lib"
     int_or_die -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$(s "$JSC_LIBS")/$lib"
+    strip_rpaths "$(s "$JSC_LIBS")/$lib"
 done
 
 echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($JSC_LIBS)"
