@@ -533,6 +533,18 @@ probe_cg_iosurface_image_reference() {
         "$T/cg_iosurface_image_reference"
 }
 
+probe_cg_iosurface_source_rewrite() {
+    "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_source_rewrite" \
+        "$TBEHAV/CoreGraphics-iosurface-source-rewrite.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
+        "$T/cg_iosurface_source_rewrite"
+}
+
+probe_cg_iosurface_source_rewrite_layer() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/cg_iosurface_source_rewrite_layer" \
+        "$TBEHAV/CoreGraphics-iosurface-source-rewrite-layer.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore -framework IOSurface &&
+        "$T/cg_iosurface_source_rewrite_layer"
+}
+
 probe_cg_iosurface_context_image_draw() {
     "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_context_image_draw" \
         "$TBEHAV/CoreGraphics-iosurface-context-image-draw.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface -framework OpenGL &&
@@ -1295,6 +1307,8 @@ run_probe ax_client_identification "$@"
 run_probe cg_iosurface_image_colorspace "$@"
 run_probe cg_iosurface_image_matching "$@"
 run_probe cg_iosurface_context_image_draw "$@"
+run_probe cg_iosurface_source_rewrite "$@"
+run_probe cg_iosurface_source_rewrite_layer "$@"
 run_probe cg_hsl_blend "$@"
 run_probe cg_hsl_window "$@"
 run_probe cg_gradient_dither_space "$@"

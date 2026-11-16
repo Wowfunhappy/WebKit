@@ -2295,13 +2295,27 @@ static const void *wk_surfaceContextImageKey(void)
 static id wk_ioSurfaceImageLock(void);
 static bool wk_hasAcceleratedCoreAnimationRenderer(void);
 
+// The surface a marked image was made from, an identity that is never dereferenced.
+static const void *wk_surfaceContextImageSurfaceKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_surfaceContextImageSurface");
+    return key;
+}
+
+static void wk_watchSurfaceWrites(CGContextRef);
+
 // CGIOSurfaceContextCreateImage — a DELIBERATE REPLACEMENT of a present 10.9 function that marks the
 // image it returns for the CGContextDrawImage replacement.
 WK_POLYFILL_REPLACES("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImage, (CGContextRef context))
 {
     CGImageRef image = WK_ORIGINAL(CGIOSurfaceContextCreateImage)(context);
-    if (image)
+    if (image) {
+        wk_watchSurfaceWrites(context);
         objc_setAssociatedObject((id)image, wk_surfaceContextImageKey(), (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject((id)image, wk_surfaceContextImageSurfaceKey(), (id)CGIOSurfaceContextGetSurface(context), OBJC_ASSOCIATION_ASSIGN);
+    }
     return image;
 }
 
@@ -2353,6 +2367,380 @@ static id wk_ioSurfaceImageLock(void)
     objc_sync_exit(anchor);
     lock = existing;
     return lock;
+}
+
+// 10.9's QuartzCore keeps an image drawn into an IOSurface context referenced from that context's queue until
+// the queue renders. A drawing operation queued on the image's own surface while the image is referenced
+// detaches it onto a copy of the whole surface (CA::CG::IOSurfaceQueue::will_draw ->
+// IOSurfaceDrawable::detach_providers -> IOSurfaceDataProvider::detach: a lock that reads the surface back,
+// then a memmove). A marked image drawn as itself into a context on QuartzCore's IOSurface delegate is
+// therefore recorded with its surface, the destination's delegate and the drawing thread, and before the
+// surface's context queues a drawing operation on that thread, the recorded delegates render their queues.
+// Only IOSurface contexts are destinations: draws into any other context, a CGLayer's or a Core Animation
+// layer's own drawing context included, are not recorded. A record does not hold its delegate:
+// the delegate's finalization, its context's render, or that drawing operation removes it.
+//
+// The delegates of recorded destinations and of watched surfaces run each QuartzCore callback under a lock of
+// their own, which a render of the delegate's queue also takes, so the render never meets a drawing operation
+// another thread queues on the delegate. The records are kept under a process-wide mutex that is never held
+// while a delegate's lock is taken or QuartzCore is called. A render takes one record at a time and pins its
+// delegate until the render ends; a finalization removes the delegate's records and waits for its pins before
+// QuartzCore's.
+typedef struct {
+    const void *surface;
+    void *destination;
+    pthread_t thread;
+} wk_surface_image_draw;
+
+extern void *CGContextDelegateGetCallback(void *delegate, int name);
+extern void CGContextDelegateSetCallback(void *delegate, int name, void (*callback)(void));
+
+// CGContextDelegate callback names of QuartzCore's CA::CG::ContextDelegate, with its parameters as 10.9 declares
+// them. Every IOSurface context's delegate carries the same functions.
+enum {
+    wk_finalizeCallback = 0, wk_drawLinesCallback = 4, wk_drawRectsCallback = 5, wk_drawPathCallback = 6,
+    wk_drawImageCallback = 7, wk_drawGlyphsCallback = 8, wk_drawShadingCallback = 9, wk_drawImagesCallback = 11,
+    wk_operationCallback = 14, wk_drawWindowContentsCallback = 15, wk_beginTransparencyLayerCallback = 17,
+    wk_endTransparencyLayerCallback = 18, wk_drawLayerCallback = 20, wk_drawLinearGradientCallback = 21,
+    wk_drawRadialGradientCallback = 22, wk_drawImageFromRectCallback = 23, wk_delegateCallbackCount = 24
+};
+
+// Process-wide state kept with the lock's anchor: the record count, the records, and QuartzCore's callbacks.
+typedef struct {
+    _Atomic long count;
+    bool learned;
+    void *callbacks[wk_delegateCallbackCount];
+    pthread_mutex_t mutex;
+    pthread_cond_t unpinned;
+} wk_surface_image_draw_state;
+
+static wk_surface_image_draw_state *wk_surfaceImageDrawState(void)
+{
+    static wk_surface_image_draw_state *state;
+    if (state)
+        return state;
+    id anchor = (id)objc_getClass("NSObject");
+    const void *key = (const void *)sel_registerName("wk_surfaceImageDrawState");
+    id lock = wk_ioSurfaceImageLock();
+    objc_sync_enter(lock);
+    CFMutableDataRef storage = (CFMutableDataRef)(void *)objc_getAssociatedObject(anchor, key);
+    if (!storage) {
+        storage = CFDataCreateMutable(kCFAllocatorDefault, sizeof(wk_surface_image_draw_state));
+        if (!storage)
+            abort();
+        CFDataSetLength(storage, sizeof(wk_surface_image_draw_state));
+        wk_surface_image_draw_state *created = (wk_surface_image_draw_state *)(void *)CFDataGetMutableBytePtr(storage);
+        pthread_mutex_init(&created->mutex, NULL);
+        pthread_cond_init(&created->unpinned, NULL);
+        objc_setAssociatedObject(anchor, key, (id)(void *)storage, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(storage);
+    }
+    objc_sync_exit(lock);
+    state = (wk_surface_image_draw_state *)(void *)CFDataGetMutableBytePtr(storage);
+    return state;
+}
+
+// The records. Called with the mutex held.
+static CFMutableArrayRef wk_surfaceImageDraws(void)
+{
+    static CFMutableArrayRef draws;
+    if (draws)
+        return draws;
+    id anchor = (id)objc_getClass("NSObject");
+    const void *key = (const void *)sel_registerName("wk_surfaceImageDraws");
+    CFMutableArrayRef existing = (CFMutableArrayRef)(void *)objc_getAssociatedObject(anchor, key);
+    if (!existing) {
+        existing = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        if (!existing)
+            abort();
+        objc_setAssociatedObject(anchor, key, (id)(void *)existing, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(existing);
+    }
+    draws = existing;
+    return draws;
+}
+
+static const wk_surface_image_draw *wk_surfaceImageDrawAtIndex(CFArrayRef draws, CFIndex index)
+{
+    return (const wk_surface_image_draw *)(const void *)CFDataGetBytePtr((CFDataRef)CFArrayGetValueAtIndex(draws, index));
+}
+
+// A wrapped delegate's lock; the surface its context draws into when it is a watched surface's delegate; and the
+// number of renders of its queue in progress, which its finalization waits out.
+typedef struct {
+    pthread_mutex_t lock;
+    _Atomic(const void *) surface;
+    long pins;
+} wk_context_delegate_state;
+
+static const void *wk_contextDelegateStateKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_contextDelegateState");
+    return key;
+}
+
+static wk_context_delegate_state *wk_contextDelegateState(void *delegate)
+{
+    CFMutableDataRef storage = (CFMutableDataRef)(void *)objc_getAssociatedObject((id)delegate, wk_contextDelegateStateKey());
+    return storage ? (wk_context_delegate_state *)(void *)CFDataGetMutableBytePtr(storage) : NULL;
+}
+
+// QuartzCore's callbacks, read once from the first IOSurface context's delegate to be wrapped. Called with the
+// mutex held.
+static void wk_learnContextDelegateCallbacks(void *delegate)
+{
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    if (state->learned)
+        return;
+    for (int name = 0; name < wk_delegateCallbackCount; ++name)
+        state->callbacks[name] = CGContextDelegateGetCallback(delegate, name);
+    state->learned = true;
+}
+
+// Removes the records `matches` selects. Called with the mutex held.
+static void wk_removeSurfaceImageDraws(bool (*matches)(const wk_surface_image_draw *, const void *), const void *argument)
+{
+    CFMutableArrayRef draws = wk_surfaceImageDraws();
+    for (CFIndex index = CFArrayGetCount(draws); index-- > 0;) {
+        if (matches(wk_surfaceImageDrawAtIndex(draws, index), argument))
+            CFArrayRemoveValueAtIndex(draws, index);
+    }
+    atomic_store(&wk_surfaceImageDrawState()->count, CFArrayGetCount(draws));
+}
+
+// Removes the first record `matches` selects and pins its delegate, or answers NULL. Called with the mutex held.
+static void *wk_takeSurfaceImageDraw(bool (*matches)(const wk_surface_image_draw *, const void *), const void *argument)
+{
+    CFMutableArrayRef draws = wk_surfaceImageDraws();
+    for (CFIndex index = 0; index < CFArrayGetCount(draws); ++index) {
+        void *destination = wk_surfaceImageDrawAtIndex(draws, index)->destination;
+        if (!matches(wk_surfaceImageDrawAtIndex(draws, index), argument))
+            continue;
+        CFArrayRemoveValueAtIndex(draws, index);
+        atomic_store(&wk_surfaceImageDrawState()->count, CFArrayGetCount(draws));
+        wk_contextDelegateState(destination)->pins++;
+        return destination;
+    }
+    return NULL;
+}
+
+static bool wk_drawIsOfSurfaceOnThisThread(const wk_surface_image_draw *draw, const void *surface)
+{
+    return draw->surface == surface && pthread_equal(draw->thread, pthread_self());
+}
+
+static bool wk_drawIsInto(const wk_surface_image_draw *draw, const void *destination)
+{
+    return draw->destination == destination;
+}
+
+static void wk_wrapContextDelegate(void *delegate);
+
+static void wk_recordSurfaceImageDraw(CGImageRef image, CGContextRef destination)
+{
+    const void *surface = objc_getAssociatedObject((id)image, wk_surfaceContextImageSurfaceKey());
+    if (WK_SYSTEM(CGContextGetType)(destination) != WK_CG_CONTEXT_TYPE_IOSURFACE || CGIOSurfaceContextGetSurface(destination) == surface)
+        return;
+    void *delegate = CGContextGetDelegate(destination);
+    wk_surface_image_draw draw = { surface, delegate, pthread_self() };
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    pthread_mutex_lock(&state->mutex);
+    CFMutableArrayRef draws = wk_surfaceImageDraws();
+    bool recorded = false;
+    for (CFIndex index = 0; !recorded && index < CFArrayGetCount(draws); ++index) {
+        const wk_surface_image_draw *other = wk_surfaceImageDrawAtIndex(draws, index);
+        recorded = wk_drawIsOfSurfaceOnThisThread(other, surface) && other->destination == delegate;
+    }
+    if (!recorded) {
+        wk_wrapContextDelegate(delegate);
+        CFDataRef record = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&draw, sizeof draw);
+        if (!record)
+            abort();
+        CFArrayAppendValue(draws, record);
+        CFRelease(record);
+        atomic_store(&state->count, CFArrayGetCount(draws));
+    }
+    pthread_mutex_unlock(&state->mutex);
+}
+
+// Renders the queues of the destinations this thread drew `surface`'s images into, one at a time.
+static void wk_renderDrawsOfSurface(const void *surface)
+{
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    if (!surface || !atomic_load(&state->count))
+        return;
+    typedef intptr_t (*operation_fn)(void *, void *, void *, CFStringRef, CFDictionaryRef);
+    for (;;) {
+        pthread_mutex_lock(&state->mutex);
+        void *destination = wk_takeSurfaceImageDraw(wk_drawIsOfSurfaceOnThisThread, surface);
+        pthread_mutex_unlock(&state->mutex);
+        if (!destination)
+            return;
+        wk_context_delegate_state *delegateState = wk_contextDelegateState(destination);
+        pthread_mutex_lock(&delegateState->lock);
+        ((operation_fn)state->callbacks[wk_operationCallback])(destination, NULL, NULL, CFSTR("kCGContextFlush"), NULL);
+        pthread_mutex_unlock(&delegateState->lock);
+        pthread_mutex_lock(&state->mutex);
+        delegateState->pins--;
+        pthread_cond_broadcast(&state->unpinned);
+        pthread_mutex_unlock(&state->mutex);
+    }
+}
+
+// Drops the records of draws into `context`, whose queue has rendered.
+static void wk_forgetDrawsInto(CGContextRef context)
+{
+    if (!context || !atomic_load(&wk_surfaceImageDrawState()->count) || !wk_drawsThroughCoreAnimationIOSurface(context))
+        return;
+    void *delegate = CGContextGetDelegate(context);
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    pthread_mutex_lock(&state->mutex);
+    wk_removeSurfaceImageDraws(wk_drawIsInto, delegate);
+    pthread_mutex_unlock(&state->mutex);
+}
+
+// Renders the recorded destinations of a watched surface's delegate, then takes the delegate's lock.
+static wk_context_delegate_state *wk_beginDelegateCallback(void *delegate, bool writes)
+{
+    wk_context_delegate_state *delegateState = wk_contextDelegateState(delegate);
+    if (writes && atomic_load(&wk_surfaceImageDrawState()->count))
+        wk_renderDrawsOfSurface(atomic_load(&delegateState->surface));
+    pthread_mutex_lock(&delegateState->lock);
+    return delegateState;
+}
+
+// The callbacks that queue a drawing operation, and the operation callback, which queues one for kCGContextClear
+// and kCGContextErase.
+#define WK_DELEGATE_WRAPPER(NAME, PARAMS, ARGS) \
+    static intptr_t wk_delegate_##NAME PARAMS \
+    { \
+        wk_context_delegate_state *delegateState = wk_beginDelegateCallback(delegate, true); \
+        intptr_t result = ((intptr_t (*) PARAMS)wk_surfaceImageDrawState()->callbacks[wk_##NAME##Callback]) ARGS; \
+        pthread_mutex_unlock(&delegateState->lock); \
+        return result; \
+    }
+WK_DELEGATE_WRAPPER(drawLines, (void *delegate, void *state, void *gstate, const CGPoint *points, size_t count),
+    (delegate, state, gstate, points, count))
+WK_DELEGATE_WRAPPER(drawRects, (void *delegate, void *state, void *gstate, CGPathDrawingMode mode, const CGRect *rects, size_t count),
+    (delegate, state, gstate, mode, rects, count))
+WK_DELEGATE_WRAPPER(drawPath, (void *delegate, void *state, void *gstate, CGPathDrawingMode mode, CGPathRef path),
+    (delegate, state, gstate, mode, path))
+WK_DELEGATE_WRAPPER(drawImage, (void *delegate, void *state, void *gstate, CGRect rect, CGImageRef image),
+    (delegate, state, gstate, rect, image))
+WK_DELEGATE_WRAPPER(drawGlyphs, (void *delegate, void *state, void *gstate, const CGAffineTransform *matrix, const CGGlyph *glyphs,
+    const CGPoint *positions, size_t count), (delegate, state, gstate, matrix, glyphs, positions, count))
+WK_DELEGATE_WRAPPER(drawShading, (void *delegate, void *state, void *gstate, CGShadingRef shading), (delegate, state, gstate, shading))
+WK_DELEGATE_WRAPPER(drawImages, (void *delegate, void *state, void *gstate, const CGRect *rects, const CGImageRef *images,
+    const CGRect *sourceRects, size_t count), (delegate, state, gstate, rects, images, sourceRects, count))
+WK_DELEGATE_WRAPPER(drawWindowContents, (void *delegate, void *state, void *gstate, CGRect rect, unsigned int window,
+    unsigned int connection, CGRect source), (delegate, state, gstate, rect, window, connection, source))
+WK_DELEGATE_WRAPPER(beginTransparencyLayer, (void *delegate, void *state, void *gstate, CGRect rect, CFDictionaryRef info,
+    void *layerDelegate), (delegate, state, gstate, rect, info, layerDelegate))
+WK_DELEGATE_WRAPPER(endTransparencyLayer, (void *delegate, void *state, void *gstate), (delegate, state, gstate))
+WK_DELEGATE_WRAPPER(drawLayer, (void *delegate, void *state, void *gstate, CGRect rect, void *layerDelegate),
+    (delegate, state, gstate, rect, layerDelegate))
+WK_DELEGATE_WRAPPER(drawLinearGradient, (void *delegate, void *state, void *gstate, CGGradientRef gradient, CGPoint start,
+    CGPoint end, unsigned int options), (delegate, state, gstate, gradient, start, end, options))
+WK_DELEGATE_WRAPPER(drawRadialGradient, (void *delegate, void *state, void *gstate, CGGradientRef gradient, CGPoint startCenter,
+    double startRadius, CGPoint endCenter, double endRadius, unsigned int options),
+    (delegate, state, gstate, gradient, startCenter, startRadius, endCenter, endRadius, options))
+WK_DELEGATE_WRAPPER(drawImageFromRect, (void *delegate, void *state, void *gstate, CGRect rect, CGImageRef image, CGRect source),
+    (delegate, state, gstate, rect, image, source))
+#undef WK_DELEGATE_WRAPPER
+
+static intptr_t wk_delegate_operation(void *delegate, void *state, void *gstate, CFStringRef operation, CFDictionaryRef info)
+{
+    bool writes = operation && (CFEqual(operation, CFSTR("kCGContextClear")) || CFEqual(operation, CFSTR("kCGContextErase")));
+    wk_context_delegate_state *delegateState = wk_beginDelegateCallback(delegate, writes);
+    intptr_t result = ((intptr_t (*)(void *, void *, void *, CFStringRef, CFDictionaryRef))wk_surfaceImageDrawState()->callbacks[wk_operationCallback])(
+        delegate, state, gstate, operation, info);
+    pthread_mutex_unlock(&delegateState->lock);
+    return result;
+}
+
+static void wk_delegate_finalize(void *delegate)
+{
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    wk_context_delegate_state *delegateState = wk_contextDelegateState(delegate);
+    pthread_mutex_lock(&state->mutex);
+    wk_removeSurfaceImageDraws(wk_drawIsInto, delegate);
+    while (delegateState->pins)
+        pthread_cond_wait(&state->unpinned, &state->mutex);
+    pthread_mutex_unlock(&state->mutex);
+    ((void (*)(void *))state->callbacks[wk_finalizeCallback])(delegate);
+}
+
+static const struct {
+    int name;
+    void *wrapper;
+} wk_delegateWrappers[] = {
+    { wk_finalizeCallback, (void *)wk_delegate_finalize },
+    { wk_drawLinesCallback, (void *)wk_delegate_drawLines },
+    { wk_drawRectsCallback, (void *)wk_delegate_drawRects },
+    { wk_drawPathCallback, (void *)wk_delegate_drawPath },
+    { wk_drawImageCallback, (void *)wk_delegate_drawImage },
+    { wk_drawGlyphsCallback, (void *)wk_delegate_drawGlyphs },
+    { wk_drawShadingCallback, (void *)wk_delegate_drawShading },
+    { wk_drawImagesCallback, (void *)wk_delegate_drawImages },
+    { wk_operationCallback, (void *)wk_delegate_operation },
+    { wk_drawWindowContentsCallback, (void *)wk_delegate_drawWindowContents },
+    { wk_beginTransparencyLayerCallback, (void *)wk_delegate_beginTransparencyLayer },
+    { wk_endTransparencyLayerCallback, (void *)wk_delegate_endTransparencyLayer },
+    { wk_drawLayerCallback, (void *)wk_delegate_drawLayer },
+    { wk_drawLinearGradientCallback, (void *)wk_delegate_drawLinearGradient },
+    { wk_drawRadialGradientCallback, (void *)wk_delegate_drawRadialGradient },
+    { wk_drawImageFromRectCallback, (void *)wk_delegate_drawImageFromRect },
+};
+
+// Wraps an IOSurface context's delegate's callbacks, once per delegate across every copy of this archive. Called
+// with the mutex held.
+static void wk_wrapContextDelegate(void *delegate)
+{
+    if (wk_contextDelegateState(delegate))
+        return;
+    wk_learnContextDelegateCallbacks(delegate);
+    size_t count = sizeof wk_delegateWrappers / sizeof *wk_delegateWrappers;
+    CFMutableDataRef storage = CFDataCreateMutable(kCFAllocatorDefault, sizeof(wk_context_delegate_state));
+    if (!storage)
+        abort();
+    CFDataSetLength(storage, sizeof(wk_context_delegate_state));
+    wk_context_delegate_state *delegateState = (wk_context_delegate_state *)(void *)CFDataGetMutableBytePtr(storage);
+    pthread_mutexattr_t attributes;
+    pthread_mutexattr_init(&attributes);
+    pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&delegateState->lock, &attributes);
+    pthread_mutexattr_destroy(&attributes);
+    objc_setAssociatedObject((id)delegate, wk_contextDelegateStateKey(), (id)(void *)storage, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(storage);
+    for (size_t index = 0; index < count; ++index)
+        CGContextDelegateSetCallback(delegate, wk_delegateWrappers[index].name, (void (*)(void))wk_delegateWrappers[index].wrapper);
+}
+
+// Watches the writes of an IOSurface context whose image is made.
+static void wk_watchSurfaceWrites(CGContextRef context)
+{
+    void *delegate = CGContextGetDelegate(context);
+    wk_surface_image_draw_state *state = wk_surfaceImageDrawState();
+    pthread_mutex_lock(&state->mutex);
+    wk_wrapContextDelegate(delegate);
+    atomic_store(&wk_contextDelegateState(delegate)->surface, (const void *)CGIOSurfaceContextGetSurface(context));
+    pthread_mutex_unlock(&state->mutex);
+}
+
+// CGContextFlush and CGContextSynchronize — DELIBERATE REPLACEMENTS of present 10.9 functions: once an IOSurface
+// context's queue has rendered, the records of surface images drawn into it go.
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextFlush, (CGContextRef context))
+{
+    WK_ORIGINAL(CGContextFlush)(context);
+    wk_forgetDrawsInto(context);
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSynchronize, (CGContextRef context))
+{
+    WK_ORIGINAL(CGContextSynchronize)(context);
+    wk_forgetDrawsInto(context);
 }
 
 // The bytes of an unmasked image whose pixels are 8-bit premultiplied RGB in 32 bits, as its provider holds
@@ -2671,6 +3059,8 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef con
         CGImageRef drawn = copy ? copy : image;
         if (!wk_drawOversizedImageInIOSurface(context, rect, drawn))
             WK_ORIGINAL(CGContextDrawImage)(context, rect, drawn);
+        if (fromSurface)
+            wk_recordSurfaceImageDraw(image, context);
     } else if (context && image && wk_matchesBitmapDraw(context, image, &bitmapSpace)) {
         CGImageRef copy = wk_imageForDestinationColorSpace(image, bitmapSpace);
         WK_ORIGINAL(CGContextDrawImage)(context, rect, copy ? copy : image);
