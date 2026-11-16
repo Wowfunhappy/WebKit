@@ -1,17 +1,20 @@
 # A file-promise drag source. Drag from the orange window; every event lands in
 # /tmp/file-promise-drag-source.log.
 #
-#   /usr/bin/python AquaWebKitSupport/tests/file-promise-drag-source.py [legacy|provider] [count]
+#   /usr/bin/python AquaWebKitSupport/tests/file-promise-drag-source.py [legacy|provider] [count] [delay-ms]
 #
 # legacy (the default) is the kind VMware Tools' host-to-guest drag, Mail and iPhoto start:
 # -dragPromisedFilesOfTypes:fromRect:source:slideBack:event: promises `count` files (a .txt, then a
-# .png), and the files exist once the destination calls -namesOfPromisedFilesDroppedAtDestination:.
+# .png). With no delay the files exist once the destination calls -namesOfPromisedFilesDroppedAtDestination:;
+# with a delay each file is named first, then written on another thread: its first half `delay-ms` after
+# naming and the rest `delay-ms` later, through one open descriptor.
 # provider drags `count` items through NSFilePromiseProvider -- the polyfill's, found under its private
 # runtime name once WebKit is loaded -- whose delegate takes two seconds to write each file, so a
 # destination that reads before the write finishes gets a short or missing file.
 import ctypes
 import os
 import sys
+import threading
 import time
 import objc
 import WebKit
@@ -21,6 +24,7 @@ from Foundation import *
 LOG = '/tmp/file-promise-drag-source.log'
 MODE = sys.argv[1] if len(sys.argv) > 1 else 'legacy'
 COUNT = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+DELAY = int(sys.argv[3]) / 1000.0 if len(sys.argv) > 3 else 0
 NAMES = [('promised.txt', 'txt', 'public.plain-text', 'promised file contents\n'),
          ('promised.png', 'png', 'public.png', 'not really a png\n')][:COUNT]
 
@@ -85,10 +89,23 @@ class LegacyView(SourceView):
         self.dragPromisedFilesOfTypes_fromRect_source_slideBack_event_([entry[1] for entry in NAMES], NSMakeRect(10, 10, 32, 32), self, True, event)
 
     def namesOfPromisedFilesDroppedAtDestination_(self, url):
+        def write(path, contents):
+            if DELAY:
+                time.sleep(DELAY)
+            with open(path, 'w') as f:
+                if DELAY:
+                    f.write(contents[:4])
+                    f.flush()
+                    time.sleep(DELAY)
+                f.write(contents[4:] if DELAY else contents)
+            log('%.3f legacy wrote %s' % (time.time(), path))
         for name, extension, uti, contents in NAMES:
-            with open(os.path.join(url.path(), name), 'w') as f:
-                f.write(contents)
-        log('namesOfPromisedFilesDroppedAtDestination: ' + url.path())
+            path = os.path.join(url.path(), name)
+            if DELAY:
+                threading.Thread(target=write, args=(path, contents)).start()
+            else:
+                write(path, contents)
+        log('%.3f namesOfPromisedFilesDroppedAtDestination: %s' % (time.time(), url.path()))
         return [entry[0] for entry in NAMES]
 
 class ProviderView(SourceView):

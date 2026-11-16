@@ -3,9 +3,17 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <CoreServices/CoreServices.h>
 #import <objc/runtime.h>
+#include <fcntl.h>
 #include <float.h>
+#include <libproc.h>
+#include <sys/proc_info.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 // NSFilePromiseReceiver (10.12+): the receiving side of a file promise on the drag pasteboard, done the
 // way 10.9's -[NSDraggingInfo namesOfPromisedFilesDroppedAtDestination:] does it: set the pasteboard's
@@ -15,10 +23,303 @@
 // so the first receiver to call in a legacy drag receives them all. Any other
 // item yields one file through kPasteboardTypeFileURLPromise; receivers of the same type are
 // interchangeable, so each takes the next of that drag's items of its type that no receiver has taken.
-// The reader runs on the given queue inside a coordinated read of each file.
+// The reader runs on the given queue inside a coordinated read of each file, once the file is ready (see
+// WKPolyfillPromisedFileWaiter): a legacy promiser names its files before it writes them, and a kept promise's
+// keeper may go on writing its file after handing over the URL.
 static char wkClaimedPromiseItemsKey;
 // The value of AppKit's private _NSPromiseContentsPboardType: reading it calls in a legacy promise.
 static NSString * const wkPromiseContentsPasteboardType = @"NSPromiseContentsPboardType";
+
+static const int64_t wkPromisedFileQuietInterval = 500 * NSEC_PER_MSEC;
+static const int64_t wkPromisedFileDeadline = 60 * NSEC_PER_SEC;
+
+// Whether any process whose descriptors this process can read holds one of the files open for writing.
+static BOOL wkFilesAreOpen(NSSet *fileIDs)
+{
+    if (!fileIDs.count)
+        return NO;
+    int size = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
+    if (size <= 0)
+        return NO;
+    size += 16 * sizeof(pid_t);
+    pid_t *pids = malloc(size);
+    int count = pids ? proc_listpids(PROC_ALL_PIDS, 0, pids, size) / (int)sizeof(pid_t) : 0;
+    BOOL open = NO;
+    for (int i = 0; i < count && !open; ++i) {
+        if (!pids[i])
+            continue;
+        int fdsSize = proc_pidinfo(pids[i], PROC_PIDLISTFDS, 0, NULL, 0);
+        if (fdsSize <= 0)
+            continue;
+        struct proc_fdinfo *fds = malloc(fdsSize);
+        int fdCount = fds ? proc_pidinfo(pids[i], PROC_PIDLISTFDS, 0, fds, fdsSize) / (int)sizeof(struct proc_fdinfo) : 0;
+        for (int j = 0; j < fdCount && !open; ++j) {
+            if (fds[j].proc_fdtype != PROX_FDTYPE_VNODE)
+                continue;
+            struct vnode_fdinfo info;
+            if (proc_pidfdinfo(pids[i], fds[j].proc_fd, PROC_PIDFDVNODEINFO, &info, sizeof(info)) != sizeof(info) || !(info.pfi.fi_openflags & FWRITE))
+                continue;
+            open = [fileIDs containsObject:[NSString stringWithFormat:@"%d:%llu", info.pvi.vi_stat.vst_dev, (unsigned long long)info.pvi.vi_stat.vst_ino]];
+        }
+        free(fds);
+    }
+    free(pids);
+    return open;
+}
+
+static NSString *wkFileID(const struct stat *status)
+{
+    return [NSString stringWithFormat:@"%d:%llu", status->st_dev, (unsigned long long)status->st_ino];
+}
+
+// The file, or every file inside the folder, as device:inode strings.
+static NSSet *wkFileIDsAtPath(const char *path)
+{
+    struct stat status;
+    if (stat(path, &status))
+        return [NSSet set];
+    if (!S_ISDIR(status.st_mode))
+        return [NSSet setWithObject:wkFileID(&status)];
+    NSMutableSet *fileIDs = [NSMutableSet set];
+    NSString *root = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:path length:strlen(path)];
+    for (NSString *relativePath in [[NSFileManager defaultManager] enumeratorAtPath:root]) {
+        struct stat itemStatus;
+        if (!lstat([root stringByAppendingPathComponent:relativePath].fileSystemRepresentation, &itemStatus) && S_ISREG(itemStatus.st_mode))
+            [fileIDs addObject:wkFileID(&itemStatus)];
+    }
+    return fileIDs;
+}
+
+// Watches for a promised file or folder to appear and for writes to it, and calls the completion on its own
+// queue once it is ready (YES) or has failed (NO). It is ready once it exists, nothing in it has changed
+// for wkPromisedFileQuietInterval, and no process holds it, or a file inside it, open for writing. It has
+// failed when it has not appeared within wkPromisedFileDeadline, when it disappears, or when it stays open
+// for writing with nothing changing for wkPromisedFileDeadline.
+@interface WKPolyfillPromisedFileWaiter : NSObject
+{
+    char *_path;
+    dispatch_queue_t _queue;
+    dispatch_source_t _directorySource;
+    dispatch_source_t _fileSource;
+    dev_t _fileDevice;
+    ino_t _fileInode;
+    FSEventStreamRef _treeStream;
+    dispatch_source_t _timer;
+    uint64_t _lastChange;
+    void (^_completion)(BOOL ready);
+    BOOL _sawFile;
+    BOOL _finished;
+}
++ (void)waitForFileAtURL:(NSURL *)fileURL queue:(NSOperationQueue *)operationQueue completion:(void (^)(BOOL ready))completion;
+@end
+@implementation WKPolyfillPromisedFileWaiter
++ (void)waitForFileAtURL:(NSURL *)fileURL queue:(NSOperationQueue *)operationQueue completion:(void (^)(BOOL ready))completion
+{
+    const char *path = fileURL.fileSystemRepresentation;
+    const char *directoryPath = fileURL.URLByDeletingLastPathComponent.fileSystemRepresentation;
+    if (!path || !directoryPath) {
+        [operationQueue addOperationWithBlock:^{ completion(NO); }];
+        return;
+    }
+    // The waiter owns itself until it finishes.
+    WKPolyfillPromisedFileWaiter *waiter = [[self alloc] init];
+    waiter->_path = strdup(path);
+    waiter->_completion = [completion copy];
+    waiter->_queue = dispatch_queue_create("NSFilePromiseReceiver.promisedFile", DISPATCH_QUEUE_SERIAL);
+    char *directory = strdup(directoryPath);
+    dispatch_async(waiter->_queue, ^{
+        @autoreleasepool {
+            [waiter startWatchingDirectory:directory];
+        }
+        free(directory);
+    });
+}
+- (void)dealloc
+{
+    free(_path);
+    if (_directorySource)
+        dispatch_release(_directorySource);
+    if (_fileSource)
+        dispatch_release(_fileSource);
+    if (_timer)
+        dispatch_release(_timer);
+    dispatch_release(_queue);
+    [_completion release];
+    [super dealloc];
+}
+static dispatch_source_t wkVnodeSource(int fd, unsigned long mask, dispatch_queue_t queue, dispatch_block_t handler)
+{
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, fd, mask, queue);
+    dispatch_source_set_event_handler(source, handler);
+    dispatch_source_set_cancel_handler(source, ^{ close(fd); });
+    dispatch_resume(source);
+    return source;
+}
+static void wkTreeChanged(ConstFSEventStreamRef stream, void *info, size_t count, void *paths, const FSEventStreamEventFlags flags[], const FSEventStreamEventId ids[])
+{
+    (void)stream;
+    (void)count;
+    (void)paths;
+    (void)flags;
+    (void)ids;
+    @autoreleasepool {
+        [(WKPolyfillPromisedFileWaiter *)info fileChanged];
+    }
+}
+- (void)startWatchingDirectory:(const char *)directoryPath
+{
+    _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _queue);
+    dispatch_source_set_event_handler(_timer, ^{
+        @autoreleasepool {
+            [self timerFired];
+        }
+    });
+    dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, wkPromisedFileDeadline), DISPATCH_TIME_FOREVER, 0);
+    dispatch_resume(_timer);
+    int directoryFD = open(directoryPath, O_EVTONLY);
+    if (directoryFD < 0) {
+        [self finish:NO];
+        return;
+    }
+    _directorySource = wkVnodeSource(directoryFD, DISPATCH_VNODE_WRITE, _queue, ^{
+        @autoreleasepool {
+            [self fileChanged];
+        }
+    });
+    [self fileChanged];
+}
+// Watches whichever file or folder is at the path now; a writer that replaces it moves the watch to the new
+// one. A folder's whole tree is watched.
+- (void)fileChanged
+{
+    if (_finished)
+        return;
+    struct stat status;
+    if (stat(_path, &status))
+        return;
+    if (_fileSource && (status.st_dev != _fileDevice || status.st_ino != _fileInode)) {
+        dispatch_source_cancel(_fileSource);
+        dispatch_release(_fileSource);
+        _fileSource = NULL;
+    }
+    if (!_fileSource) {
+        int fileFD = open(_path, O_EVTONLY);
+        struct stat opened;
+        if (fileFD >= 0 && !fstat(fileFD, &opened)) {
+            _fileDevice = opened.st_dev;
+            _fileInode = opened.st_ino;
+            _fileSource = wkVnodeSource(fileFD, DISPATCH_VNODE_WRITE | DISPATCH_VNODE_EXTEND | DISPATCH_VNODE_ATTRIB | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME, _queue, ^{
+                @autoreleasepool {
+                    [self fileChanged];
+                }
+            });
+        } else if (fileFD >= 0)
+            close(fileFD);
+    }
+    if (S_ISDIR(status.st_mode) && !_treeStream) {
+        FSEventStreamContext context = { 0, self, NULL, NULL, NULL };
+        NSArray *paths = @[ [[NSFileManager defaultManager] stringWithFileSystemRepresentation:_path length:strlen(_path)] ];
+        _treeStream = FSEventStreamCreate(kCFAllocatorDefault, wkTreeChanged, &context, (CFArrayRef)paths, kFSEventStreamEventIdSinceNow, 0, kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents);
+        if (_treeStream) {
+            FSEventStreamSetDispatchQueue(_treeStream, _queue);
+            FSEventStreamStart(_treeStream);
+        }
+    }
+    _sawFile = YES;
+    _lastChange = dispatch_time(DISPATCH_TIME_NOW, 0);
+    dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, wkPromisedFileQuietInterval), DISPATCH_TIME_FOREVER, 0);
+}
+- (void)timerFired
+{
+    struct stat status;
+    if (!_sawFile || stat(_path, &status)) {
+        [self finish:NO];
+        return;
+    }
+    if (wkFilesAreOpen(wkFileIDsAtPath(_path))) {
+        if (dispatch_time(DISPATCH_TIME_NOW, 0) >= dispatch_time(_lastChange, wkPromisedFileDeadline)) {
+            [self finish:NO];
+            return;
+        }
+        dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, wkPromisedFileQuietInterval), DISPATCH_TIME_FOREVER, 0);
+        return;
+    }
+    [self finish:YES];
+}
+- (void)finish:(BOOL)ready
+{
+    if (_finished)
+        return;
+    _finished = YES;
+    dispatch_source_cancel(_timer);
+    if (_directorySource)
+        dispatch_source_cancel(_directorySource);
+    if (_fileSource)
+        dispatch_source_cancel(_fileSource);
+    if (_treeStream) {
+        FSEventStreamStop(_treeStream);
+        FSEventStreamInvalidate(_treeStream);
+        FSEventStreamRelease(_treeStream);
+        _treeStream = NULL;
+    }
+    _completion(ready);
+    [self release];
+}
+@end
+
+static NSError *wkPromisedFileMissingError(NSURL *fileURL)
+{
+    return [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:@{ NSURLErrorKey: fileURL }];
+}
+
+// Calls the reader on the queue with the promised file inside a coordinated read, once the file is ready.
+static void wkReadReadyPromisedFile(NSURL *fileURL, NSOperationQueue *operationQueue, void (^reader)(NSURL *, NSError *))
+{
+    [WKPolyfillPromisedFileWaiter waitForFileAtURL:fileURL queue:operationQueue completion:^(BOOL ready) {
+        [operationQueue addOperationWithBlock:^{
+            if (!ready) {
+                reader(fileURL, wkPromisedFileMissingError(fileURL));
+                return;
+            }
+            NSFileCoordinator *coordinator = [[[NSFileCoordinator alloc] initWithFilePresenter:nil] autorelease];
+            NSError *coordinationError = nil;
+            __block BOOL didRead = NO;
+            [coordinator coordinateReadingItemAtURL:fileURL options:NSFileCoordinatorReadingWithoutChanges error:&coordinationError byAccessor:^(NSURL *readURL) {
+                didRead = YES;
+                reader(readURL, [[NSFileManager defaultManager] fileExistsAtPath:readURL.path] ? nil : wkPromisedFileMissingError(readURL));
+            }];
+            if (!didRead)
+                reader(fileURL, coordinationError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
+        }];
+    }];
+}
+
+// A legacy promise's file is waited for until it is ready. An item promise's file is first checked through a
+// coordinated read, which waits for an NSFilePromiseProvider's coordinated write; a file that is not there
+// then is a failed write, and one that is there is read once it is ready.
+static void wkReadPromisedFile(NSURL *fileURL, NSOperationQueue *operationQueue, void (^reader)(NSURL *, NSError *), BOOL isLegacyPromise)
+{
+    if (isLegacyPromise) {
+        wkReadReadyPromisedFile(fileURL, operationQueue, reader);
+        return;
+    }
+    [operationQueue addOperationWithBlock:^{
+        NSFileCoordinator *coordinator = [[[NSFileCoordinator alloc] initWithFilePresenter:nil] autorelease];
+        NSError *coordinationError = nil;
+        __block BOOL didRead = NO;
+        __block BOOL exists = NO;
+        [coordinator coordinateReadingItemAtURL:fileURL options:NSFileCoordinatorReadingWithoutChanges error:&coordinationError byAccessor:^(NSURL *readURL) {
+            didRead = YES;
+            exists = [[NSFileManager defaultManager] fileExistsAtPath:readURL.path];
+            if (!exists)
+                reader(readURL, wkPromisedFileMissingError(readURL));
+        }];
+        if (exists)
+            wkReadReadyPromisedFile(fileURL, operationQueue, reader);
+        else if (!didRead)
+            reader(fileURL, coordinationError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
+    }];
+}
 
 WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject <NSPasteboardReading>
 {
@@ -129,24 +430,13 @@ static NSMutableIndexSet *wkClaimedPromiseItems(NSPasteboard *pasteboard)
 
     void (^readerCopy)(NSURL *, NSError *) = [[reader copy] autorelease];
     for (id fileURL in fileURLs) {
-        [operationQueue addOperationWithBlock:^{
-            if (![fileURL isKindOfClass:[NSURL class]]) {
+        if (![fileURL isKindOfClass:[NSURL class]]) {
+            [operationQueue addOperationWithBlock:^{
                 readerCopy(nil, [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
-                return;
-            }
-            NSFileCoordinator *coordinator = [[[NSFileCoordinator alloc] initWithFilePresenter:nil] autorelease];
-            NSError *coordinationError = nil;
-            __block BOOL didRead = NO;
-            [coordinator coordinateReadingItemAtURL:fileURL options:NSFileCoordinatorReadingWithoutChanges error:&coordinationError byAccessor:^(NSURL *readURL) {
-                didRead = YES;
-                if ([[NSFileManager defaultManager] fileExistsAtPath:readURL.path])
-                    readerCopy(readURL, nil);
-                else
-                    readerCopy(readURL, [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:@{ NSURLErrorKey: readURL }]);
             }];
-            if (!didRead)
-                readerCopy(fileURL, coordinationError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
-        }];
+            continue;
+        }
+        wkReadPromisedFile(fileURL, operationQueue, readerCopy, _wkIsLegacyPromise);
     }
 }
 @end
