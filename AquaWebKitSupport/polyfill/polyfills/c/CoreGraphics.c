@@ -312,7 +312,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
 // destination keeps, each lands rounded, and an extended-range space's out-of-range components survive), so
 // colours, interpolation and alpha match every other gradient path exactly, and each pixel takes the ramp
 // entry its angle around the centre falls in. The pixels are an image in that space, which the context
-// matches like any other draw. The drawing CTM is set to the identity so the pixel grid is the
+// matches like any other draw. The drawing CTM maps onto the drawable's pixels so the pixel grid is the
 // context's own whatever transform the caller had -- a scaled, flipped or rotated context needs no
 // special case -- and each sample is mapped back through the caller's transform to the space the centre
 // and the angle are stated in. Measured on this host against the geometry of
@@ -348,14 +348,16 @@ typedef struct {
     CGBitmapInfo bitmapInfo;
 } wk_conic_layout;
 
+static CGAffineTransform wk_drawableCTM(CGContextRef);
+
 static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, size_t rampSamples, const wk_conic_layout *layout,
     CGPoint center, CGFloat angle)
 {
     const double twoPi = 6.283185307179586;
-    CGAffineTransform userFromBase = CGAffineTransformInvert(CGContextGetCTM(context));
+    CGAffineTransform userFromBase = CGAffineTransformInvert(wk_drawableCTM(context));
 
     CGContextSaveGState(context);
-    CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+    CGContextConcatCTM(context, userFromBase);
 
     CGRect clip = CGRectIntegral(CGContextGetClipBoundingBox(context));
     size_t columns = (size_t)CGRectGetWidth(clip);
@@ -651,6 +653,25 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGIOSurfaceContextFlushQueue, (CGContex
         CGContextFlush(context);
 }
 WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
+
+// The scale from the context's device space onto its drawable's pixels: a window context's backing scale, which 10.9 keeps
+// out of the CTM and the base CTM, in the user to device transform; the identity for every other context.
+static CGAffineTransform wk_drawableScale(CGContextRef context)
+{
+    if (WK_SYSTEM(CGContextGetType)(context) != WK_CG_CONTEXT_TYPE_WINDOW)
+        return CGAffineTransformIdentity;
+    CGAffineTransform ctm = CGContextGetCTM(context), device = CGContextGetUserSpaceToDeviceSpaceTransform(context);
+    CGFloat determinant = ctm.a * ctm.d - ctm.b * ctm.c;
+    CGFloat scale = determinant ? sqrt(fabs((device.a * device.d - device.b * device.c) / determinant)) : 1;
+    return CGAffineTransformMakeScale(scale, scale);
+}
+
+// The context's CTM onto its drawable's pixels.
+static CGAffineTransform wk_drawableCTM(CGContextRef context)
+{
+    return CGAffineTransformConcat(CGContextGetCTM(context), wk_drawableScale(context));
+}
+
 extern void *CGContextGetDelegate(CGContextRef);
 extern void *CGContextDelegateGetInfo(void *);
 extern void *CGContextGetRenderingState(CGContextRef);
@@ -3577,6 +3598,13 @@ extern void *CGContextCopyTopGState(CGContextRef);
 extern void CGContextReplaceTopGState(CGContextRef, void *);
 extern CGAffineTransform CGContextGetBaseCTM(CGContextRef);
 extern void CGContextSetBaseCTM(CGContextRef, CGAffineTransform);
+
+// The context's base CTM onto its drawable's pixels.
+static CGAffineTransform wk_drawableBaseCTM(CGContextRef context)
+{
+    return CGAffineTransformConcat(CGContextGetBaseCTM(context), wk_drawableScale(context));
+}
+
 extern void *CGContextGetDelegate(CGContextRef);
 extern void *CGContextDelegateGetInfo(void *);
 WK_SYSTEM_FN("IOSurface", size_t, IOSurfaceGetBytesPerElement, (IOSurfaceRef));
@@ -3750,12 +3778,12 @@ static CGImageRef wk_createReadBackImage(const wk_blend_read_back *readBack, uin
     return image;
 }
 
-// Under the context's state with no clip, CTM to device space, no alpha or shadow, and `mode`.
+// Under the context's state with no clip, CTM onto the drawable's pixels, no alpha or shadow, and `mode`.
 static void wk_beginUnclippedDeviceDraw(CGContextRef context, CGBlendMode mode)
 {
     CGContextSaveGState(context);
     CGContextResetClip(context);
-    CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+    CGContextConcatCTM(context, CGAffineTransformInvert(wk_drawableCTM(context)));
     CGContextSetBlendMode(context, mode);
     CGContextSetAlpha(context, 1);
     CGContextSetShadowWithColor(context, CGSizeZero, 0, NULL);
@@ -3768,7 +3796,7 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     readBack->context = NULL;
     if (!wk_contextDrawable(context, &drawable))
         return false;
-    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGAffineTransform ctm = wk_drawableCTM(context);
     CGRect bounds = CGRectMake(0, 0, drawable.width, drawable.height);
     CGRect region = CGContextGetStyle(context) ? bounds
         : CGRectIntersection(CGRectIntegral(CGRectApplyAffineTransform(CGContextGetClipBoundingBox(context), ctm)), bounds);
@@ -3813,7 +3841,7 @@ static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blen
     wk_surface_drawable drawable;
     if (!wk_contextDrawable(context, &drawable))
         return false;
-    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGAffineTransform ctm = wk_drawableCTM(context);
     CGRect region = CGRectIntersection(CGRectIntegral(CGRectApplyAffineTransform(CGContextGetClipBoundingBox(context), ctm)),
         CGRectMake(0, 0, drawable.width, drawable.height));
     if (CGRectIsNull(region) || CGRectIsEmpty(region) || !(ctm.a * ctm.d - ctm.b * ctm.c))
@@ -3854,8 +3882,8 @@ static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blen
     CGContextSetAllowsFontSubpixelPositioning(bitmap, CGContextGetAllowsFontSubpixelPositioning(context));
     CGContextSetAllowsFontSubpixelQuantization(bitmap, CGContextGetAllowsFontSubpixelQuantization(context));
     CGAffineTransform toBitmap = CGAffineTransformMakeTranslation(-region.origin.x, -region.origin.y);
-    CGContextConcatCTM(bitmap, CGAffineTransformConcat(CGAffineTransformConcat(ctm, toBitmap), CGAffineTransformInvert(ctm)));
-    CGContextSetBaseCTM(bitmap, CGAffineTransformConcat(CGContextGetBaseCTM(context), toBitmap));
+    CGContextConcatCTM(bitmap, CGAffineTransformConcat(CGAffineTransformConcat(ctm, toBitmap), CGAffineTransformInvert(CGContextGetCTM(context))));
+    CGContextSetBaseCTM(bitmap, CGAffineTransformConcat(wk_drawableBaseCTM(context), toBitmap));
     CGContextResetClip(bitmap);
     if (!blends || readBack->hsl)
         CGContextSetBlendMode(bitmap, kCGBlendModeNormal);
@@ -3886,7 +3914,7 @@ static void wk_endStyledDraw(wk_blend_read_back *readBack)
     CGImageRef image = CGBitmapContextCreateImage(bitmap);
     if (readBack->hsl) {
         CGColorSpaceRef space = CGContextGetColorSpace(context);
-        CGAffineTransform base = CGContextGetBaseCTM(context);
+        CGAffineTransform base = wk_drawableBaseCTM(context);
         CGContextFlush(context);
         uint8_t *composite = wk_copyDrawableRegion(readBack);
         wk_compositeHSLImage(composite, wk_drawableBitmapInfo(context), image, readBack->mode, 1, (CGStyleRef)readBack->shadow, false, space,
@@ -3898,7 +3926,7 @@ static void wk_endStyledDraw(wk_blend_read_back *readBack)
         readBack->shadow = NULL;
     }
     CGContextSaveGState(context);
-    CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+    CGContextConcatCTM(context, CGAffineTransformInvert(wk_drawableCTM(context)));
     CGContextSetStyle(context, NULL);
     CGContextSetInterpolationQuality(context, kCGInterpolationNone);
     CGContextSetAlpha(context, 1);
@@ -4169,7 +4197,7 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     CGImageRef destinationImage = wk_createReadBackImage(readBack, readBack->destination, space);
     CGImageRef sourceImage = wk_createReadBackImage(readBack, source, space);
     // CoreGraphics measures a style in base space.
-    CGAffineTransform base = CGContextGetBaseCTM(context);
+    CGAffineTransform base = wk_drawableBaseCTM(context);
     CGAffineTransform baseScale = CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d));
     CGImageRef result;
     CGContextRef bitmap = NULL;
@@ -4206,7 +4234,7 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     if (readBack->style) {
         // The source and its shadow were read back unclipped, so the clip applies here.
         CGContextSaveGState(context);
-        CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+        CGContextConcatCTM(context, CGAffineTransformInvert(wk_drawableCTM(context)));
         CGContextSetBlendMode(context, kCGBlendModeCopy);
         CGContextSetAlpha(context, 1);
         CGContextSetShadowWithColor(context, CGSizeZero, 0, NULL);
