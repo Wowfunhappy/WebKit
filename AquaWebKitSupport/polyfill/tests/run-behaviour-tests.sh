@@ -1185,6 +1185,12 @@ probe_css_family_language() {
         "$T/css_family_language"
 }
 
+probe_cg_clip_reach() {
+    "$CLANG" $MODERN $INC -o "$T/cg_clip_reach" "$TBEHAV/CoreGraphics-clip-reach.c" $PROBE_LIBS \
+        -framework CoreGraphics -framework IOSurface &&
+        "$T/cg_clip_reach"
+}
+
 probe_clipped_glyphs() {
     "$CLANG" $MODERN $INC -o "$T/clipped_glyphs" "$TBEHAV/CoreText-clipped-glyphs.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -framework IOSurface &&
@@ -1435,6 +1441,7 @@ run_probe commit_handler_pre_order "$@"
 run_probe shape_glyphs_context "$@"
 run_probe css_family_language "$@"
 run_probe clipped_glyphs "$@"
+run_probe cg_clip_reach "$@"
 run_probe user_installed_matching "$@"
 run_probe gpos_last_pair_set "$@"
 run_probe control_character_glyphs "$@"

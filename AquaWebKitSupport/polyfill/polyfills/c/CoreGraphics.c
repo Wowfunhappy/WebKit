@@ -3068,7 +3068,12 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef con
 // is too large to rasterize: measured on this OS, a 40-unit-wide rect clips at a height of 2e9 and is
 // ignored at 2e12 or at FloatRect::infiniteRect()'s FLT_MAX, while CGContextGetClipBoundingBox reports
 // the clip applied. The clip is an intersection with the current one, so each rect is first intersected
-// with the current clip's bounding box, which changes no clip and bounds every extent to the context.
+// with the current clip's bounding box, widened along each user axis by as many units as span wk_clipReach
+// device units along it. That bounds every side to about twice the reach in device space, under any scale,
+// rotation or shear, well inside what CoreAnimation rasterizes, and leaves the clip unchanged as far past the
+// drawable as any content can cast a ring or a shadow into it. An axis the transform collapses keeps the box.
+static const CGFloat wk_clipReach = 5e8;
+
 static bool wk_boundsClipToContext(CGContextRef context)
 {
     return context && wk_drawsThroughCoreAnimationIOSurface(context);
@@ -3076,7 +3081,12 @@ static bool wk_boundsClipToContext(CGContextRef context)
 
 static CGRect wk_clipRectWithinClip(CGContextRef context, CGRect rect)
 {
-    CGRect bounded = CGRectIntersection(CGRectStandardize(rect), CGContextGetClipBoundingBox(context));
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    CGAffineTransform toDevice = CGContextGetUserSpaceToDeviceSpaceTransform(context);
+    CGFloat xLength = hypot(toDevice.a, toDevice.b), yLength = hypot(toDevice.c, toDevice.d);
+    if (!CGRectIsNull(clip))
+        clip = CGRectInset(clip, xLength > 0 ? -wk_clipReach / xLength : 0, yLength > 0 ? -wk_clipReach / yLength : 0);
+    CGRect bounded = CGRectIntersection(CGRectStandardize(rect), clip);
     return CGRectIsNull(bounded) ? CGRectZero : bounded;
 }
 
