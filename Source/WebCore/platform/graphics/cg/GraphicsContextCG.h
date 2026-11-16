@@ -32,18 +32,10 @@
 #include <wtf/TZoneMalloc.h>
 
 #if USE(APPKIT)
-extern "C" bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
-extern "C" bool wk_dropsFocusRingStyle(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
 extern "C" void wk_beginBlendingGroupLayer(CGContextRef); // AQUAWEBKIT: the polyfill layer's transparency layer read-back reaches.
 #endif // AQUAWEBKIT: closes the declaration above.
 
 namespace WebCore {
-
-#if USE(APPKIT)
-// AQUAWEBKIT: hands `draw` a bitmap-backed stand-in for the part of `destination` its clip can show, and composites
-// those pixels back one for one; see GraphicsContextCocoa.mm.
-void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef));
-#endif // AQUAWEBKIT: closes the declaration above.
 
 class WEBCORE_EXPORT GraphicsContextCG : public GraphicsContext {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(GraphicsContextCG, WEBCORE_EXPORT);

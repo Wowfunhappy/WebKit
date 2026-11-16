@@ -7,9 +7,13 @@
 #include <stdint.h>
 
 bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef);
-bool wk_dropsFocusRingStyle(CGContextRef);
 size_t wk_coreAnimationTextureLimit(void);
 void wk_beginBlendingGroupLayer(CGContextRef);
+// The bitmap a cell's focus ring mask also draws into, under the context's CTM and clip, while the context has a
+// transparency layer open under a focus ring QuartzCore's software renderer drops; NULL when none is.
+// wk_endFocusRingMask ends the mask.
+CGContextRef wk_beginFocusRingMask(CGContextRef);
+void wk_endFocusRingMask(CGContextRef);
 
 // A draw between these under a blend mode QuartzCore does not implement composites through a read-back of its
 // surface. Begin answers whether it is taking place; the caller then draws into `target`.
@@ -25,6 +29,8 @@ typedef struct {
     CGTextDrawingMode textMode;
     bool hsl;
     const void *shadow;
+    CGContextRef masks;
+    int maskReach;
 } wk_blend_read_back;
 bool wk_blendReadBackBegin(CGContextRef, wk_blend_read_back *);
 void wk_blendReadBackEnd(wk_blend_read_back *);

@@ -99,47 +99,6 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #endif
 
-#if USE(APPKIT)
-// AQUAWEBKIT: a cell's focus ring under the software renderer draws through here, its AppKit-drawn mask being one the
-// polyfill layer cannot carry past the drawable: it hands `draw` a bitmap-backed stand-in for the part of `destination`
-// its clip can show, and composites those pixels back one for one.
-void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
-{
-    CGRect clip = CGContextGetClipBoundingBox(destination);
-    if (CGRectIsEmpty(clip))
-        return;
-    CGAffineTransform deviceFromUser = CGContextGetUserSpaceToDeviceSpaceTransform(destination);
-    CGRect deviceRect = CGRectIntegral(CGRectApplyAffineTransform(clip, deviceFromUser));
-    size_t width = static_cast<size_t>(deviceRect.size.width);
-    size_t height = static_cast<size_t>(deviceRect.size.height);
-    if (!width || !height)
-        return;
-
-    RetainPtr<CGColorSpaceRef> colorSpace = CGContextGetColorSpace(destination);
-    if (!colorSpace)
-        colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    RetainPtr scratch = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
-        static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
-    RELEASE_ASSERT(scratch);
-
-    // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
-    // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
-    // Its base CTM maps the destination's base space onto those same pixels, because CoreGraphics
-    // measures a style in base space and a HiDPI context's scale lives there.
-    CGAffineTransform scratchFromDevice = CGAffineTransformMakeTranslation(-deviceRect.origin.x, -deviceRect.origin.y);
-    CGContextConcatCTM(scratch.get(), CGAffineTransformConcat(deviceFromUser, scratchFromDevice));
-    CGAffineTransform deviceFromBase = CGAffineTransformConcat(CGAffineTransformInvert(getUserToBaseCTM(destination)), deviceFromUser);
-    CGContextSetBaseCTM(scratch.get(), CGAffineTransformConcat(deviceFromBase, scratchFromDevice));
-    draw(scratch.get());
-
-    RetainPtr image = adoptCF(CGBitmapContextCreateImage(scratch.get()));
-    RELEASE_ASSERT(image);
-    CGContextStateSaver stateSaver(destination);
-    CGContextConcatCTM(destination, CGAffineTransformInvert(deviceFromUser));
-    CGContextDrawImage(destination, deviceRect, image.get());
-}
-#endif
-
 void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& color, float zoomFactor)
 {
     if (path.isEmpty())

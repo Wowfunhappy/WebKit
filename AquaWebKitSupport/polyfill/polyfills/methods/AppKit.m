@@ -12,6 +12,7 @@
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
+#import "wk_coregraphics.h"
 #import <AppKit/AppKit.h>
 #import <ColorSync/ColorSync.h>
 #import <CoreServices/CoreServices.h>
@@ -2320,4 +2321,24 @@ WK_POLYFILL_ADD_METHODS(NSResponder)
 
 WK_POLYFILL_ADD_METHODS(NSSpellChecker)
 + (BOOL)isAutomaticTextCompletionEnabled { return NO; }
+@end
+
+// A cell's focus ring mask goes to the transparency layer the caller opened under the ring's style. Under QuartzCore's
+// software renderer, which drops that style, it also draws into the bitmap wk_beginFocusRingMask hands out, which holds
+// the part of the mask past the drawable for the layer's read-back to ring. The classes listed implement the method
+// themselves.
+WK_POLYFILL_REPLACE_METHODS_ON(NSCell, "NSCell", "NSButtonCell", "NSTextFieldCell", "NSSegmentedCell", "NSDatePickerCell", "NSImageCell")
+- (void)drawFocusRingMaskWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    struct wk_original original = wk_original_of(self, _cmd);
+    ((void (*)(id, SEL, NSRect, NSView *))original.imp)(self, original.sel, cellFrame, controlView);
+    NSGraphicsContext *current = [NSGraphicsContext currentContext];
+    CGContextRef masks = wk_beginFocusRingMask((CGContextRef)[current graphicsPort]);
+    if (!masks)
+        return;
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:masks flipped:[current isFlipped]]];
+    ((void (*)(id, SEL, NSRect, NSView *))original.imp)(self, original.sel, cellFrame, controlView);
+    [NSGraphicsContext setCurrentContext:current];
+    wk_endFocusRingMask(masks);
+}
 @end

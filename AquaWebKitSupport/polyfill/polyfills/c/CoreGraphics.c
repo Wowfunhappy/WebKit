@@ -3015,11 +3015,6 @@ bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef context)
         && wk_contextDelegateVTable(context) == wk_coreAnimationIOSurfaceDelegateVTable;
 }
 
-bool wk_dropsFocusRingStyle(CGContextRef context)
-{
-    return !wk_hasAcceleratedCoreAnimationRenderer() && wk_drawsThroughCoreAnimationIOSurface(context);
-}
-
 // An 8-bit bitmap context of another RGB colour space than a premultiplied 8-bit RGB image draws the image's
 // per-space image, as an IOSurface context does. 10.9's bitmap route unpremultiplies at 8 bits and matches
 // through an 8-bit table, which lands opaque levels up to 0.55 of a level from exact -- sRGB 7 becomes
@@ -4057,6 +4052,63 @@ static void wk_setFocusRingAtAlpha(CGContextRef bitmap, CGStyleRef style, CGFloa
     CGContextSetAlpha(bitmap, 1);
 }
 
+// AppKit draws a cell's focus ring mask with 10.9's own functions, inside the transparency layer the caller opened
+// under the ring's style, which this archive reads back. Each mask also draws, unstyled, into one bitmap the layer's
+// read-back holds: its region of the drawable widened by the style's reach, so the part of a mask past the drawable is
+// kept. wk_endReadBack rings what the layer drew together with those parts.
+CGContextRef wk_beginFocusRingMask(CGContextRef context)
+{
+    if (!context || !__atomic_load_n(&wk_surfaceLayerCount, __ATOMIC_ACQUIRE))
+        return NULL;
+    struct wk_surface_layer *layer;
+    pthread_mutex_lock(&wk_transparencyLayerLock);
+    for (layer = wk_surfaceLayers; layer && layer->context != context; layer = layer->next) { }
+    pthread_mutex_unlock(&wk_transparencyLayerLock);
+    if (!layer || layer->kind != wk_layerOffscreenUnderReadBack || !layer->readBack.style || !wk_dropsStyle((CGStyleRef)layer->readBack.style)
+        || !wk_drawsThroughCoreAnimationIOSurface(context))
+        return NULL;
+    wk_blend_read_back *readBack = &layer->readBack;
+    CGRect region = readBack->region;
+    CGAffineTransform toBitmap = CGAffineTransformMakeTranslation(readBack->maskReach - region.origin.x, readBack->maskReach - region.origin.y);
+    if (!readBack->masks) {
+        // CoreGraphics measures the ring's radius in base space; one more pixel holds its antialiased edge.
+        CGAffineTransform base = wk_drawableBaseCTM(context);
+        const wk_focus_ring_style *ring = (const wk_focus_ring_style *)CGStyleGetData((CGStyleRef)readBack->style);
+        readBack->maskReach = (int)ceil(ring->radius * fmax(hypot(base.a, base.b), hypot(base.c, base.d))) + 1;
+        toBitmap = CGAffineTransformMakeTranslation(readBack->maskReach - region.origin.x, readBack->maskReach - region.origin.y);
+        size_t width = (size_t)region.size.width + 2 * (size_t)readBack->maskReach;
+        size_t rows = (size_t)region.size.height + 2 * (size_t)readBack->maskReach;
+        readBack->masks = CGBitmapContextCreate(NULL, width, rows, 8, width * 4, CGContextGetColorSpace(context), wk_gradientNarrowInfo);
+        if (!readBack->masks)
+            abort();
+        CGContextSetBaseCTM(readBack->masks, CGAffineTransformConcat(base, toBitmap));
+    }
+    CGContextRef bitmap = readBack->masks;
+    CGContextSaveGState(bitmap);
+    CGContextConcatCTM(bitmap, CGAffineTransformInvert(CGContextGetCTM(bitmap)));
+    // The read-back opened the layer with the context's clip reset to its drawable, so a side of the clip that reaches
+    // the drawable's edge is open beyond it, and the bitmap's reach past that side stays unclipped.
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    CGRect bounds = CGRectZero;
+    if (!CGRectIsNull(clip) && !CGRectIsEmpty(clip)) {
+        CGRect device = CGRectApplyAffineTransform(clip, wk_drawableCTM(context));
+        CGFloat reach = readBack->maskReach;
+        CGFloat minX = CGRectGetMinX(device) <= CGRectGetMinX(region) ? CGRectGetMinX(region) - reach : CGRectGetMinX(device);
+        CGFloat minY = CGRectGetMinY(device) <= CGRectGetMinY(region) ? CGRectGetMinY(region) - reach : CGRectGetMinY(device);
+        CGFloat maxX = CGRectGetMaxX(device) >= CGRectGetMaxX(region) ? CGRectGetMaxX(region) + reach : CGRectGetMaxX(device);
+        CGFloat maxY = CGRectGetMaxY(device) >= CGRectGetMaxY(region) ? CGRectGetMaxY(region) + reach : CGRectGetMaxY(device);
+        bounds = CGRectApplyAffineTransform(CGRectMake(minX, minY, maxX - minX, maxY - minY), toBitmap);
+    }
+    CGContextClipToRect(bitmap, bounds);
+    CGContextConcatCTM(bitmap, CGAffineTransformConcat(wk_drawableCTM(context), toBitmap));
+    return bitmap;
+}
+
+void wk_endFocusRingMask(CGContextRef bitmap)
+{
+    CGContextRestoreGState(bitmap);
+}
+
 // Rows of `region` of the context's drawable: a bitmap context's own data, a window context's backing store, or the
 // surface of a QuartzCore-rendered one.
 // CA::CG::IOSurfaceContextDelegate keeps its IOSurfaceDrawable at offset 0xd0, which keeps its surface at 0x8 and the
@@ -4198,6 +4250,8 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     readBack->region = region;
     readBack->hsl = false;
     readBack->shadow = NULL;
+    readBack->masks = NULL;
+    readBack->maskReach = 0;
     CGContextFlush(context);
     readBack->destination = wk_copyDrawableRegion(readBack);
     CGPathRef path = CGContextIsPathEmpty(context) ? NULL : CGContextCopyPath(context);
@@ -4589,6 +4643,39 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     // CoreGraphics measures a style in base space.
     CGAffineTransform base = wk_drawableBaseCTM(context);
     CGAffineTransform baseScale = CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d));
+    CGStyleRef style = (CGStyleRef)readBack->style;
+    CGFloat sourceAlpha = alpha;
+    if (readBack->masks) {
+        // The parts of the focus ring masks past the region join what the layer drew, which replaces them within it,
+        // and the style rings both at once over the region widened by its reach; the ringed source then composites as
+        // an unstyled one.
+        int reach = readBack->maskReach;
+        size_t wideWidth = width + 2 * (size_t)reach, wideRows = rows + 2 * (size_t)reach;
+        CGContextRef wide = CGBitmapContextCreate(NULL, wideWidth, wideRows, 8, wideWidth * 4, space, wk_gradientNarrowInfo);
+        CGContextRef ringed = CGBitmapContextCreate(NULL, width, rows, 8, width * 4, space, wk_gradientNarrowInfo);
+        if (!wide || !ringed)
+            abort();
+        CGContextSetInterpolationQuality(wide, kCGInterpolationNone);
+        CGImageRef masks = CGBitmapContextCreateImage(readBack->masks);
+        WK_ORIGINAL(CGContextDrawImage)(wide, CGRectMake(0, 0, wideWidth, wideRows), masks);
+        CGImageRelease(masks);
+        CGContextSetBlendMode(wide, kCGBlendModeCopy);
+        WK_ORIGINAL(CGContextDrawImage)(wide, CGRectMake(reach, reach, width, rows), sourceImage);
+        CGImageRef wideImage = CGBitmapContextCreateImage(wide);
+        CGContextRelease(wide);
+        CGContextRelease(readBack->masks);
+        readBack->masks = NULL;
+        CGContextSetInterpolationQuality(ringed, kCGInterpolationNone);
+        CGContextSetBaseCTM(ringed, baseScale);
+        wk_setFocusRingAtAlpha(ringed, style, alpha);
+        WK_ORIGINAL(CGContextDrawImage)(ringed, CGRectMake(-reach, -reach, wideWidth, wideRows), wideImage);
+        CGImageRelease(wideImage);
+        CGImageRelease(sourceImage);
+        sourceImage = CGBitmapContextCreateImage(ringed);
+        CGContextRelease(ringed);
+        style = NULL;
+        sourceAlpha = 1;
+    }
     CGImageRef result;
     CGContextRef bitmap = NULL;
     if (wk_isHSLBlendMode(readBack->mode)) {
@@ -4596,7 +4683,7 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
         if (!composite)
             abort();
         memcpy(composite, readBack->destination, width * rows * 4);
-        wk_compositeHSLImage(composite, wk_drawableBitmapInfo(context), sourceImage, readBack->mode, alpha, (CGStyleRef)readBack->style,
+        wk_compositeHSLImage(composite, wk_drawableBitmapInfo(context), sourceImage, readBack->mode, sourceAlpha, style,
             wk_drawsThroughCoreAnimationIOSurface(context), space, baseScale);
         result = wk_createReadBackImage(readBack, composite, space);
     } else {
@@ -4607,13 +4694,13 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
         CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
         WK_ORIGINAL(CGContextDrawImage)(bitmap, all, destinationImage);
         CGContextSetBlendMode(bitmap, readBack->mode);
-        CGContextSetAlpha(bitmap, alpha);
-        if (readBack->style) {
+        CGContextSetAlpha(bitmap, sourceAlpha);
+        if (style) {
             CGContextSetBaseCTM(bitmap, baseScale);
-            if (wk_isFocusRing((CGStyleRef)readBack->style) && wk_drawsThroughCoreAnimationIOSurface(context))
-                wk_setFocusRingAtAlpha(bitmap, (CGStyleRef)readBack->style, alpha);
+            if (wk_isFocusRing(style) && wk_drawsThroughCoreAnimationIOSurface(context))
+                wk_setFocusRingAtAlpha(bitmap, style, alpha);
             else
-                CGContextSetStyle(bitmap, (CGStyleRef)readBack->style);
+                CGContextSetStyle(bitmap, style);
         }
         WK_ORIGINAL(CGContextDrawImage)(bitmap, all, sourceImage);
         result = CGBitmapContextCreateImage(bitmap);

@@ -316,15 +316,6 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
 
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    // AQUAWEBKIT: this OS's software renderer drops a focus ring's CGStyle; see wkDrawInBitmapBackedContext.
-    if (wk_dropsFocusRingStyle(context.platformContext())) {
-        wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
-            GraphicsContextCG scratchContext(scratch);
-            drawCellFocusRing(scratchContext, rect, deviceScaleFactor, style, cell);
-        });
-        return;
-    } // AQUAWEBKIT: closes the software renderer's route above.
-
     RetainPtr cgContext = context.platformContext();
     CGContextStateSaver stateSaver(cgContext.get());
 
