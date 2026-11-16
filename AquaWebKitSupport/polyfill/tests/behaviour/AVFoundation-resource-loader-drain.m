@@ -156,10 +156,12 @@ static long drainedFiles(void)
     return count;
 }
 
-int main(void)
+// argv[1]: the path of LayoutTests/webaudio/resources/media/24bit-44khz.wav.
+int main(int argc, char **argv)
 {
     @autoreleasepool {
-        NSData *wav = [NSData dataWithContentsOfFile:@"/Users/jonathan/Desktop/webkit/LayoutTests/webaudio/resources/media/24bit-44khz.wav"];
+        NSString *wavPath = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : nil;
+        NSData *wav = wavPath ? [NSData dataWithContentsOfFile:wavPath] : nil;
         if (!wav.length) {
             printf("FAILED: the probe's WAV is missing\n");
             return 1;
@@ -199,7 +201,7 @@ int main(void)
 
         // A local asset is untouched by any of this.
         AVURLAsset *localAsset = [[AVURLAsset alloc] initWithURL:
-            [NSURL fileURLWithPath:@"/Users/jonathan/Desktop/webkit/LayoutTests/webaudio/resources/media/24bit-44khz.wav"] options:nil];
+            [NSURL fileURLWithPath:wavPath] options:nil];
         check("a local asset reads as it always did", framesReadThrough(localAsset), 44100);
     }
 

@@ -442,14 +442,14 @@ int main(int argc, char **argv)
         printf("FAIL: (e) Inter from a collection advances 'n' %.3f, the font from its bytes %.3f\n", fromCollection, fromBytes);
         failures++;
     }
-    // Black is Inter's sixteenth named instance; 10.9 names it "Inter-Regular_", style "Regular Black".
+    // Black is Inter's sixteenth named instance; 10.9 names it "Inter-Regular_", style "Black" or "Regular Black".
     CFURLRef pairURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, (CFIndex)strlen(path), false);
     CFArrayRef pairFaces = CTFontManagerCreateFontDescriptorsFromURL(pairURL);
     double black = 0;
     for (CFIndex i = 0; pairFaces && i < CFArrayGetCount(pairFaces); i++) {
         CTFontDescriptorRef face = (CTFontDescriptorRef)CFArrayGetValueAtIndex(pairFaces, i);
         CFStringRef style = (CFStringRef)CTFontDescriptorCopyAttribute(face, kCTFontStyleNameAttribute);
-        if (style && CFEqual(style, CFSTR("Regular Black")))
+        if (style && (CFEqual(style, CFSTR("Black")) || CFEqual(style, CFSTR("Regular Black"))))
             black = faceAdvance(face);
         if (style)
             CFRelease(style);

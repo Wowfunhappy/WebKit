@@ -67,7 +67,7 @@ static void runFor(NSTimeInterval duration)
 static NSBitmapImageRep *capture(NSWindow *window)
 {
     CGImageRef image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow,
-        (CGWindowID)window.windowNumber, kCGWindowImageBoundsIgnoreFraming);
+        (CGWindowID)window.windowNumber, kCGWindowImageBoundsIgnoreFraming | kCGWindowImageNominalResolution);
     assert(image);
     NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc] initWithCGImage:image] autorelease];
     CGImageRelease(image);

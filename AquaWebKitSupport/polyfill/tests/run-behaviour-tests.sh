@@ -844,7 +844,7 @@ probe_avf_resource_loader_drain() {
             -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
             -framework AVFoundation -framework CoreMedia -framework AppKit -framework Foundation \
             -framework CoreServices -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
-        "$T/avf_resource_loader_drain"
+        "$T/avf_resource_loader_drain" "$REPO/LayoutTests/webaudio/resources/media/24bit-44khz.wav"
 }
 
 probe_avf_display_color_kvo() {
