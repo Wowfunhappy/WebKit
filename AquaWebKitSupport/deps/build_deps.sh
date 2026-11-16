@@ -929,7 +929,7 @@ if [ ! -f "$d/.prepared" ] || [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; t
     printf '%s\n' "$key" > "$d/.recipe"
 fi
 if prepare "$d"; then
-    ( cd "$d" && env -u SDKROOT -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS "$CMAKE" -S runtimes -B out -G Ninja \
+    ( cd "$d" && unset SDKROOT CFLAGS CXXFLAGS CPPFLAGS LDFLAGS && "$CMAKE" -S runtimes -B out -G Ninja \
         -DCMAKE_MAKE_PROGRAM="$NINJA" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
         ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
