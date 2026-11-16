@@ -296,6 +296,8 @@ public:
     // AQUAWEBKIT: a scheduled HTTPS load transfers its native certificate allowance on this connection.
 #if PLATFORM(COCOA)
     void applyHTTPSCertificateAllowance(const URL&, IPC::Connection&);
+    // AQUAWEBKIT: with web-process networking state, an NSURLProtocol class this process registered loads what it claims here.
+    bool loadsRequestThroughRegisteredURLProtocol(const WebCore::ResourceRequest&) const;
 #endif
 
     void networkProcessConnectionClosed(NetworkProcessConnection*);

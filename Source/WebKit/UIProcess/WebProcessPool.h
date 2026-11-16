@@ -914,7 +914,7 @@ private:
 #endif
 
     bool m_processTerminationEnabled { true };
-    bool m_usesWebProcessNetworkingState { false }; // AQUAWEBKIT: WKContextSetUsesNetworkProcess selects the state owner.
+    bool m_usesWebProcessNetworkingState { false }; // AQUAWEBKIT: the legacy pool creators and WKContextSetUsesNetworkProcess select the state owner.
 
     bool m_memoryCacheDisabled { false };
     bool m_javaScriptConfigurationFileEnabled { false };

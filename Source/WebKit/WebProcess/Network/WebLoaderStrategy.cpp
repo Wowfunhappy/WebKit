@@ -68,6 +68,7 @@
 #include <WebCore/NodeDocument.h>
 #include <WebCore/PlatformStrategies.h>
 #include <WebCore/ReferrerPolicy.h>
+#include <WebCore/ResourceHandle.h> // AQUAWEBKIT: synchronous loads a registered NSURLProtocol claims.
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/Settings.h>
@@ -258,6 +259,15 @@ void WebLoaderStrategy::scheduleLoad(ResourceLoader& resourceLoader, CachedResou
     if (isQuickLookPreviewURL(resourceLoader.request().url())) {
         LOG(NetworkScheduling, "(WebProcess) WebLoaderStrategy::scheduleLoad, url '%s' will be handled as a QuickLook resource.", resourceLoader.url().string().utf8().data());
         WEBLOADERSTRATEGY_RELEASE_LOG("scheduleLoad: URL will be handled as a QuickLook resource");
+        startLocalLoad(resourceLoader);
+        return;
+    }
+#endif
+
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: see WebProcess::loadsRequestThroughRegisteredURLProtocol.
+    if (WebProcess::singleton().loadsRequestThroughRegisteredURLProtocol(resourceLoader.request())) {
+        WEBLOADERSTRATEGY_RELEASE_LOG("scheduleLoad: URL will be handled by a registered NSURLProtocol");
         startLocalLoad(resourceLoader);
         return;
     }
@@ -878,6 +888,14 @@ void WebLoaderStrategy::loadResourceSynchronously(FrameLoader& frameLoader, WebC
         data = WTF::move(syncLoadResult.data);
         return;
     }
+
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: see scheduleLoad.
+    if (WebProcess::singleton().loadsRequestThroughRegisteredURLProtocol(request)) {
+        ResourceHandle::loadResourceSynchronously(frameLoader.networkingContext(), request, options.credentials == FetchOptions::Credentials::Omit ? StoredCredentialsPolicy::DoNotUse : StoredCredentialsPolicy::Use, &document->securityOrigin(), error, response, data);
+        return;
+    }
+#endif
 
     if (auto syncLoadResult = tryLoadingSynchronouslyUsingURLSchemeHandler(frameLoader, resourceLoadIdentifier, request)) {
         WEBLOADERSTRATEGY_WITH_FRAMELOADER_RELEASE_LOG_ERROR("loadResourceSynchronously: failed calling tryLoadingSynchronouslyUsingURLSchemeHandler (error=%d)", syncLoadResult->error.errorCode());

@@ -482,7 +482,11 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
     bool shouldContentSniff = true;
     RefPtr<ResourceHandle> handle = adoptRef(new ResourceHandle(context, request, &client, defersLoading, shouldContentSniff, ContentEncodingSniffingPolicy::Default, sourceOrigin, false));
 
-    handle->d->m_storageSession = context->storageSession()->platformSession();
+    // handle->d->m_storageSession = context->storageSession()->platformSession();
+    // AQUAWEBKIT: a WebKit web process's networking context has no storage session; its legacy pools load
+    // synchronously here what a registered NSURLProtocol claims (WebLoaderStrategy::loadResourceSynchronously).
+    if (auto* networkStorageSession = context->storageSession())
+        handle->d->m_storageSession = networkStorageSession->platformSession();
 
     if (context && handle->d->m_scheduledFailureType != NoFailure) {
         error = context->blockedError(request);

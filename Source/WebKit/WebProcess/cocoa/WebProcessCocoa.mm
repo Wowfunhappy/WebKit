@@ -78,6 +78,7 @@
 #endif
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/CPUMonitor.h>
+#import <WebCore/CocoaCurlResourceHandle.h> // AQUAWEBKIT: registeredURLProtocolClaimsRequest.
 #import <WebCore/DisplayRefreshMonitorManager.h>
 #import <WebCore/FontCache.h>
 #import <WebCore/FontCacheCoreText.h>
@@ -407,6 +408,12 @@ void WebProcess::applyHTTPSCertificateAllowance(const URL& url, IPC::Connection&
     RetainPtr chain = [NSURLRequest allowsSpecificHTTPSCertificateForHost:host.createNSString().get()];
     if (chain)
         connection.send(Messages::NetworkConnectionToWebProcess::ApplyWebProcessHTTPSCertificateAllowance(API::CertificateInfo::create((__bridge CFArrayRef)chain.get())->certificateInfo(), host), 0);
+}
+
+// AQUAWEBKIT: see the declaration.
+bool WebProcess::loadsRequestThroughRegisteredURLProtocol(const ResourceRequest& request) const
+{
+    return m_usesWebProcessNetworkingState && registeredURLProtocolClaimsRequest(request);
 }
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)

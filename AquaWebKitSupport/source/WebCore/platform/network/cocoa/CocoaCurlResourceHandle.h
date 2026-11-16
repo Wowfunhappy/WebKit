@@ -20,6 +20,10 @@ namespace WebCore {
 class ResourceHandle;
 class SecurityOrigin;
 
+// Whether a class passed to +[NSURLProtocol registerClass:] in this process claims the request.
+WEBCORE_EXPORT bool registeredURLProtocolClaimsRequest(NSURLRequest *);
+WEBCORE_EXPORT bool registeredURLProtocolClaimsRequest(const ResourceRequest&);
+
 // Whether curl loads the request: an http(s) request that no NSURLProtocol class the application registered
 // claims. NSURLConnection and NSURLDownload load a claimed request through its class.
 WEBCORE_EXPORT bool cocoaCurlLoadsRequest(NSURLRequest *);

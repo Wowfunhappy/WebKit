@@ -46,12 +46,20 @@
 
 // the legacy loader owns redirect/cookie/authentication policy; its native connection never owns HTTP wire bytes.
 namespace WebCore {
+bool registeredURLProtocolClaimsRequest(NSURLRequest *request)
+{
+    return !![NSURLProtocol _protocolClassForRequest:request allowCF:NO];
+}
+bool registeredURLProtocolClaimsRequest(const ResourceRequest& request)
+{
+    return registeredURLProtocolClaimsRequest(request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody));
+}
 bool cocoaCurlLoadsRequest(NSURLRequest *request)
 {
     NSString *scheme = request.URL.scheme;
     if (!scheme || ([scheme caseInsensitiveCompare:@"http"] != NSOrderedSame && [scheme caseInsensitiveCompare:@"https"] != NSOrderedSame))
         return false;
-    return ![NSURLProtocol _protocolClassForRequest:request allowCF:NO];
+    return !registeredURLProtocolClaimsRequest(request);
 }
 bool cocoaCurlLoadsRequest(const ResourceRequest& request)
 {

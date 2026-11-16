@@ -84,7 +84,11 @@ WKContextRef WKContextCreate()
     // process model is the shared secondary process until WKContextSetProcessModel asks for multiple.
     configuration->setProcessSwapsOnNavigation(false);
     configuration->setUsesSingleWebProcess(true);
-    return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
+    // return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
+    // AQUAWEBKIT: the 537 networking model, web-process networking state until WKContextSetUsesNetworkProcess(true).
+    Ref processPool = WebKit::WebProcessPool::create(configuration);
+    processPool->setUsesNetworkProcess(false);
+    return WebKit::toAPILeakingRef(WTF::move(processPool));
 }
 
 WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
@@ -95,7 +99,11 @@ WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
     configuration->setProcessSwapsOnNavigation(false);
     configuration->setUsesSingleWebProcess(true);
 
-    return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
+    // return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
+    // AQUAWEBKIT: web-process networking state; see WKContextCreate.
+    Ref processPool = WebKit::WebProcessPool::create(configuration);
+    processPool->setUsesNetworkProcess(false);
+    return WebKit::toAPILeakingRef(WTF::move(processPool));
 }
 
 WKContextRef WKContextCreateWithConfiguration(WKContextConfigurationRef configuration)

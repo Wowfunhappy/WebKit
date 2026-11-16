@@ -211,6 +211,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     configuration->setUsesSingleWebProcess(true);
 
     _processPool = WebKit::WebProcessPool::create(configuration);
+    _processPool->setUsesNetworkProcess(false); // AQUAWEBKIT: the 537 networking model; see WKContextCreate.
 
     setUpConnectionClient(self, toAPI(_processPool.get()));
     setUpInjectedBundleClient(self, toAPI(_processPool.get()));
@@ -233,6 +234,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     configuration->setUsesSingleWebProcess(true);
 
     _processPool = WebKit::WebProcessPool::create(configuration);
+    _processPool->setUsesNetworkProcess(false); // AQUAWEBKIT: the 537 networking model; see WKContextCreate.
 
     setUpConnectionClient(self, toAPI(_processPool.get()));
     setUpInjectedBundleClient(self, toAPI(_processPool.get()));
