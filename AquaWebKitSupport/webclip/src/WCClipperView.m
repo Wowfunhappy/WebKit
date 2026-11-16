@@ -2118,6 +2118,8 @@ static WKProcessPool *clipProcessPool(void)
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
     configuration.processPool = clipProcessPool();
     configuration.applicationNameForUserAgent = [WebClipper safariApplicationNameForUserAgent];
+    // The clip's pages are a page group named for the clip: the clip's copies of Safari's extensions see them.
+    configuration._groupIdentifier = [controller clipIdentifier];
 
     WKPreferences *preferences = configuration.preferences;
     preferences._standardFontFamily = [controller standardFont];

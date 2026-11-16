@@ -8047,7 +8047,7 @@ bool WebPage::canShowMIMEType(const String& mimeType, NOESCAPE const Function<bo
         return true;
 #endif
 
-    if (LegacyExtensionMimeHandlerDocument::handles(mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
+    if (LegacyExtensionMimeHandlerDocument::handles(corePage(), mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
         return true;
 
     return false;

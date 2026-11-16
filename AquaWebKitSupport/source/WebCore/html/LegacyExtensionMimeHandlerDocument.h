@@ -19,6 +19,8 @@ class JSDOMGlobalObject;
 
 struct LegacyExtensionMimeHandler {
     String extensionKey;
+    // The page group whose pages the handler serves; every page's when null.
+    String pageGroup;
     URL handlerURL;
     // Whether the handler also serves <embed>, <object> and frames, and not only top-level documents.
     bool canEmbed { false };
@@ -33,13 +35,13 @@ class LegacyExtensionMimeHandlerDocument final : public HTMLDocument {
     WTF_MAKE_TZONE_ALLOCATED(LegacyExtensionMimeHandlerDocument);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LegacyExtensionMimeHandlerDocument);
 public:
-    // The handler of each type, as the web process's router sends them.
-    WEBCORE_EXPORT static void setHandlers(HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>&&);
-    // Whether a page shows the type: an extension handles it at the top level or embedded, and, while a frame's
-    // response policy is decided, in that frame and for that response's URL.
-    WEBCORE_EXPORT static bool handles(const String& mimeType);
-    // Whether an <embed> or <object> of the URL and type shows the handler.
-    WEBCORE_EXPORT static bool handlesEmbedded(const URL&, const String& mimeType);
+    // The handlers of each type, as the web process's router sends them.
+    WEBCORE_EXPORT static void setHandlers(HashMap<String, Vector<LegacyExtensionMimeHandler>, ASCIICaseInsensitiveHash>&&);
+    // Whether a page shows the type: an extension handles it there at the top level or embedded, and, while a
+    // frame's response policy is decided, in that frame and for that response's URL.
+    WEBCORE_EXPORT static bool handles(const Page*, const String& mimeType);
+    // Whether an <embed> or <object> of the URL and type in a page shows the handler.
+    WEBCORE_EXPORT static bool handlesEmbedded(const Page*, const URL&, const String& mimeType);
 
     // The document of a frame's response of a type a handler serves in that frame.
     static RefPtr<Document> createIfHandled(LocalFrame&, const URL&, const String& mimeType);

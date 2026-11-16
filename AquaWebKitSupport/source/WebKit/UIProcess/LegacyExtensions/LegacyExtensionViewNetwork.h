@@ -58,6 +58,8 @@ private:
     // One load's webRequest state.
     struct Load : RefCounted<Load> {
         static Ref<Load> create() { return adoptRef(*new Load); }
+        // The extension whose view makes the load.
+        String extensionKey;
         String requestId;
         ASCIILiteral type;
         double frameId { 0 };
@@ -154,8 +156,9 @@ private:
     Ref<JSON::Object> responseDetails(const Load&, const WebCore::ResourceResponse&) const;
     String generatedCookie(const Load&, const WebCore::ResourceRequest&) const;
 
-    void notify(ASCIILiteral eventName, Ref<JSON::Object>&& details);
-    void dispatch(ASCIILiteral eventName, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&);
+    // A load's event, for the extensions that see the extension whose view made it.
+    void notify(const String& extensionKey, ASCIILiteral eventName, Ref<JSON::Object>&& details);
+    void dispatch(const String& extensionKey, ASCIILiteral eventName, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&);
 
     // onBeforeRedirect for a redirect's request, then the request's onBeforeRequest, onBeforeSendHeaders and
     // onSendHeaders.

@@ -2,10 +2,10 @@
 // WebExtension manifest's `mime_types_handler` key, with its keys (each MIME type's `handler_url`, a path in the
 // extension, and `can_embed`), and the options extensions set for them.
 //
-// Each MIME type goes to one handler: that of the most recently loaded extension that declares the type and has
-// not disabled it, Safari loading its extensions in the order they were installed. application/pdf is the one
-// type an extension can handle, as in Chrome. A handler serves the responses within its extension's website access.
-// Web content processes receive the handlers as JSON.
+// Each MIME type goes to one handler in a page group: that of the most recently loaded extension that sees the
+// group's pages, declares the type and has not disabled it, Safari loading its extensions in the order they were
+// installed. application/pdf is the one type an extension can handle, as in Chrome. A handler serves the responses
+// within its extension's website access. Web content processes receive the handlers as JSON.
 
 #pragma once
 

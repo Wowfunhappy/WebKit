@@ -89,6 +89,12 @@ public:
 
     double tabID() const { return m_tabID; }
 
+    bool inspectsTabSeenBy(const String& extensionKey) const
+    {
+        RefPtr page = m_inspectedPage.get();
+        return page && LegacyExtensionHost::extensionSeesPage(extensionKey, *page);
+    }
+
     void close()
     {
         for (auto& extensionKey : copyToVector(m_pageURLs.keys()))
@@ -399,8 +405,10 @@ void LegacyExtensionDevTools::inspectorWillOpen(WebInspectorUIProxy& inspector, 
 {
     Ref session = LegacyExtensionDevToolsSession::create(inspector, inspectedPage);
     m_sessions.set(&inspector, session.copyRef());
-    for (auto& [extensionKey, extension] : m_extensions)
-        session->openPage(extensionKey, devToolsPageURL(extension.root, extension.devToolsPage));
+    for (auto& [extensionKey, extension] : m_extensions) {
+        if (LegacyExtensionHost::extensionSeesPage(extensionKey, inspectedPage))
+            session->openPage(extensionKey, devToolsPageURL(extension.root, extension.devToolsPage));
+    }
 }
 
 void LegacyExtensionDevTools::inspectorWillClose(WebInspectorUIProxy& inspector)
@@ -416,8 +424,10 @@ void LegacyExtensionDevTools::extensionDidLoad(const String& extensionKey, const
         return;
     }
     m_extensions.set(extensionKey, Extension { root, devToolsPage });
-    for (Ref session : copyToVector(m_sessions.values()))
-        session->openPage(extensionKey, devToolsPageURL(root, devToolsPage));
+    for (Ref session : copyToVector(m_sessions.values())) {
+        if (session->inspectsTabSeenBy(extensionKey))
+            session->openPage(extensionKey, devToolsPageURL(root, devToolsPage));
+    }
 }
 
 void LegacyExtensionDevTools::extensionDidUnload(const String& extensionKey)

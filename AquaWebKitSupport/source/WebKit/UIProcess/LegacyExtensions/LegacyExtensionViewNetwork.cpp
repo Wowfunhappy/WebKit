@@ -95,6 +95,7 @@ RefPtr<LegacyExtensionViewNetwork::Load> LegacyExtensionViewNetwork::createLoad(
         return nullptr;
 
     auto load = Load::create();
+    load->extensionKey = (showsExtensionPage ? mainDocument->url() : request.url()).host().toString();
     load->requestId = WTF::move(requestId);
     load->type = resourceType(request, destination, isMainFrameLoad);
     load->isMainFrameLoad = isMainFrameLoad;
@@ -156,17 +157,17 @@ String LegacyExtensionViewNetwork::generatedCookie(const Load& load, const Resou
     return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request, load.sourceOrigin.get()), request.url(), std::nullopt, std::nullopt, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
 }
 
-void LegacyExtensionViewNetwork::notify(ASCIILiteral eventName, Ref<JSON::Object>&& details)
+void LegacyExtensionViewNetwork::notify(const String& extensionKey, ASCIILiteral eventName, Ref<JSON::Object>&& details)
 {
-    LegacyExtensionHost::singleton().dispatchWebRequestEvent(String { eventName }, WTF::move(details), { });
+    LegacyExtensionHost::singleton().dispatchWebRequestEvent(String { eventName }, WTF::move(details), { }, extensionKey);
 }
 
-void LegacyExtensionViewNetwork::dispatch(ASCIILiteral eventName, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completionHandler)
+void LegacyExtensionViewNetwork::dispatch(const String& extensionKey, ASCIILiteral eventName, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completionHandler)
 {
     LegacyExtensionHost::singleton().dispatchWebRequestEvent(String { eventName }, WTF::move(details), [completionHandler = WTF::move(completionHandler)](String&& response) mutable {
         auto value = JSON::Value::parseJSON(response);
         completionHandler(value ? value->asObject() : nullptr);
-    });
+    }, extensionKey);
 }
 
 // Request steps.
@@ -185,7 +186,7 @@ void LegacyExtensionViewNetwork::willSendRequest(Ref<Load>&& load, ResourceReque
             details->setString("url"_s, redirectResponse.url().string());
             details->setString("redirectUrl"_s, request.url().string());
             addResponseFields(details, redirectResponse);
-            notify(onBeforeRedirect, WTF::move(details));
+            notify(load->extensionKey, onBeforeRedirect, WTF::move(details));
         }
     }
     if (!isInterceptable(request.url()))
@@ -204,7 +205,8 @@ void LegacyExtensionViewNetwork::proxyRequest(Ref<Load>&& load, ResourceRequest&
     RefPtr details = proxyRequestDetails(load, request);
     if (!details)
         return beforeRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
-    dispatch(proxyOnRequest, details.releaseNonNull(), [this, load = WTF::move(load), request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& response) mutable {
+    auto extensionKey = load->extensionKey;
+    dispatch(extensionKey, proxyOnRequest, details.releaseNonNull(), [this, load = WTF::move(load), request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& response) mutable {
         if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
             load->proxyFilterResults = LegacyExtensions::proxyFilterResults(*answers);
             load->proxyAnswersURL = request.url();
@@ -245,11 +247,12 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
     }
     if (!m_listeners.blocks(onBeforeRequest, details)) {
         if (m_listeners.observes(onBeforeRequest))
-            notify(onBeforeRequest, WTF::move(details));
+            notify(load->extensionKey, onBeforeRequest, WTF::move(details));
         return beforeSendHeaders(WTF::move(load), WTF::move(request), WTF::move(completion));
     }
 
-    dispatch(onBeforeRequest, WTF::move(details), [this, load = WTF::move(load), request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+    auto extensionKey = load->extensionKey;
+    dispatch(extensionKey, onBeforeRequest, WTF::move(details), [this, load = WTF::move(load), request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false))
             return completion({ RequestVerdict::Kind::Fail, { }, { }, cancellationError(request) });
         URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() };
@@ -268,7 +271,7 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
             auto details = this->details(load);
             details->setString("redirectUrl"_s, redirectURL.string());
             addResponseFields(details, redirectResponse);
-            notify(onBeforeRedirect, WTF::move(details));
+            notify(load->extensionKey, onBeforeRedirect, WTF::move(details));
         }
         request.appendCookieRequestRedirectURL(request.url());
         request.setURL(WTF::move(redirectURL));
@@ -294,13 +297,14 @@ void LegacyExtensionViewNetwork::beforeSendHeaders(Ref<Load>&& load, ResourceReq
     details->setArray("requestHeaders"_s, requestHeadersWithFields(request, fields));
     if (!m_listeners.blocks(onBeforeSendHeaders, details)) {
         if (m_listeners.observes(onBeforeSendHeaders))
-            notify(onBeforeSendHeaders, copy(details));
+            notify(load->extensionKey, onBeforeSendHeaders, copy(details));
         if (m_listeners.observes(onSendHeaders))
-            notify(onSendHeaders, WTF::move(details));
+            notify(load->extensionKey, onSendHeaders, WTF::move(details));
         return completion({ RequestVerdict::Kind::Proceed, WTF::move(request), { }, { } });
     }
 
-    dispatch(onBeforeSendHeaders, WTF::move(details), [this, load = WTF::move(load), request = WTF::move(request), fields = WTF::move(fields), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+    auto extensionKey = load->extensionKey;
+    dispatch(extensionKey, onBeforeSendHeaders, WTF::move(details), [this, load = WTF::move(load), request = WTF::move(request), fields = WTF::move(fields), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false))
             return completion({ RequestVerdict::Kind::Fail, { }, { }, cancellationError(request) });
         if (RefPtr headers = verdict ? verdict->getArray("requestHeaders"_s) : nullptr)
@@ -308,7 +312,7 @@ void LegacyExtensionViewNetwork::beforeSendHeaders(Ref<Load>&& load, ResourceReq
         if (m_listeners.observes(onSendHeaders)) {
             auto details = this->details(load);
             details->setArray("requestHeaders"_s, requestHeadersWithFields(request, fields));
-            notify(onSendHeaders, WTF::move(details));
+            notify(load->extensionKey, onSendHeaders, WTF::move(details));
         }
         completion({ RequestVerdict::Kind::Proceed, WTF::move(request), { }, { } });
     });
@@ -328,14 +332,14 @@ void LegacyExtensionViewNetwork::headersReceived(Ref<Load>&& load, ResourceRespo
         setSetCookieFields(details, *curl->heldCookies());
     if (!m_listeners.blocks(onHeadersReceived, details)) {
         if (m_listeners.observes(onHeadersReceived))
-            notify(onHeadersReceived, WTF::move(details));
+            notify(load->extensionKey, onHeadersReceived, WTF::move(details));
         if (curl)
             curl->storeHeldCookies();
         return completion({ false, WTF::move(response), { } });
     }
 
     auto isMainResourceLoad = load->type == "main_frame"_s || load->type == "sub_frame"_s ? IsMainResourceLoad::Yes : IsMainResourceLoad::No;
-    dispatch(onHeadersReceived, WTF::move(details), [response = WTF::move(response), curl = WTF::move(curl), isRedirect, isMainResourceLoad, completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+    dispatch(load->extensionKey, onHeadersReceived, WTF::move(details), [response = WTF::move(response), curl = WTF::move(curl), isRedirect, isMainResourceLoad, completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
             if (curl)
                 curl->discardHeldCookies();
@@ -366,7 +370,7 @@ void LegacyExtensionViewNetwork::responseStarted(Load& load, const ResourceRespo
 {
     load.response = response;
     if (m_listeners.observes(onResponseStarted))
-        notify(onResponseStarted, responseDetails(load, response));
+        notify(load.extensionKey, onResponseStarted, responseDetails(load, response));
 }
 
 // onCompleted and onErrorOccurred.
@@ -383,7 +387,7 @@ void LegacyExtensionViewNetwork::completed(Load& load, const ResourceResponse& r
         details->setBoolean("fromCache"_s, isFromCache(response));
         details->setString("error"_s, networkErrorName(error));
     }
-    notify(eventName, WTF::move(details));
+    notify(load.extensionKey, eventName, WTF::move(details));
 }
 
 // A ResourceLoader's load.
@@ -551,7 +555,7 @@ void LegacyExtensionViewNetwork::redirectInPlace(ResourceLoader& loader, Load& l
         details->setString("url"_s, redirectResponse.url().string());
         details->setString("redirectUrl"_s, url.string());
         addResponseFields(details, redirectResponse);
-        notify(onBeforeRedirect, WTF::move(details));
+        notify(load.extensionKey, onBeforeRedirect, WTF::move(details));
     }
     load.url = url;
     auto request = loader.request();
@@ -655,11 +659,11 @@ bool LegacyExtensionViewNetwork::interceptAuthenticationChallenge(ResourceLoader
     details->setObject("challenger"_s, WTF::move(challenger));
     details->setBoolean("isProxy"_s, protectionSpace.isProxy());
     if (!m_listeners.blocks(onAuthRequired, details)) {
-        notify(onAuthRequired, WTF::move(details));
+        notify(load->extensionKey, onAuthRequired, WTF::move(details));
         return false;
     }
 
-    dispatch(onAuthRequired, WTF::move(details), [this, weakLoader = WeakPtr { loader }, challenge](RefPtr<JSON::Object>&& verdict) mutable {
+    dispatch(load->extensionKey, onAuthRequired, WTF::move(details), [this, weakLoader = WeakPtr { loader }, challenge](RefPtr<JSON::Object>&& verdict) mutable {
         RefPtr loader = weakLoader.get();
         if (!loader || loader->reachedTerminalState())
             return;
@@ -1153,7 +1157,7 @@ private:
         auto& network = LegacyExtensionViewNetwork::singleton();
         if (!response.isNull() && isInterceptable(response.url())) {
             if (isHTTPOrWebSocket(response.url()) && network.m_listeners.observes(onHeadersReceived))
-                network.notify(onHeadersReceived, network.responseDetails(m_load, response));
+                network.notify(m_load->extensionKey, onHeadersReceived, network.responseDetails(m_load, response));
             network.responseStarted(m_load, response);
         }
         network.completed(m_load, response, error);
@@ -1173,7 +1177,7 @@ RefPtr<LegacyLoadInterceptor::SynchronousLoad> LegacyExtensionViewNetwork::willL
             details->setObject("requestBody"_s, body.releaseNonNull());
     }
     if (m_listeners.observes(onBeforeRequest))
-        notify(onBeforeRequest, WTF::move(details));
+        notify(load->extensionKey, onBeforeRequest, WTF::move(details));
     if (isHTTPOrWebSocket(request.url())) {
         Vector<GeneratedField> fields;
         if (m_listeners.hasOption(onBeforeSendHeaders, extraHeadersOption) || m_listeners.hasOption(onSendHeaders, extraHeadersOption))
@@ -1183,7 +1187,7 @@ RefPtr<LegacyLoadInterceptor::SynchronousLoad> LegacyExtensionViewNetwork::willL
                 continue;
             auto details = this->details(*load);
             details->setArray("requestHeaders"_s, requestHeadersWithFields(request, fields));
-            notify(eventName, WTF::move(details));
+            notify(load->extensionKey, eventName, WTF::move(details));
         }
     }
     return LegacyExtensionViewSynchronousLoad::create(load.releaseNonNull());
@@ -1201,8 +1205,8 @@ bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const UR
     load->type = "websocket"_s;
     load->documentURL = { };
     RefPtr<LegacyWebSocketHandshake> handshake = adoptRef(*new LegacyExtensions::WebSocketHandshake(m_listeners, details(*load), false,
-        [this](ASCIILiteral event, Ref<JSON::Object>&& details) { notify(event, WTF::move(details)); },
-        [this](ASCIILiteral event, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completion) { dispatch(event, WTF::move(details), WTF::move(completion)); }));
+        [this, extensionKey = load->extensionKey](ASCIILiteral event, Ref<JSON::Object>&& details) { notify(extensionKey, event, WTF::move(details)); },
+        [this, extensionKey = load->extensionKey](ASCIILiteral event, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completion) { dispatch(extensionKey, event, WTF::move(details), WTF::move(completion)); }));
     handshake->willSendRequest(WTF::move(request), { }, [handshake, completion = WTF::move(completion)](ResourceRequest&& request, Vector<CocoaCurlProxyFilterResult>&& proxies) mutable {
         completion(!request.isNull(), WTF::move(proxies), WTF::move(handshake));
     });

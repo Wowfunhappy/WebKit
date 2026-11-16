@@ -2,6 +2,7 @@
 #include "LegacyExtensionMimeHandlers.h"
 
 #include "LegacyExtensionContentMessages.h"
+#include "LegacyExtensionHost.h"
 #include "Logging.h"
 #include "LegacyExtensionInfoPlist.h"
 #include "WebProcessPool.h"
@@ -117,13 +118,16 @@ void LegacyExtensionMimeHandlers::update()
             auto description = JSON::Object::create();
             description->setString("mimeType"_s, handler.mimeType);
             description->setString("extensionKey"_s, extension.extensionKey);
+            auto pageGroup = LegacyExtensionHost::pageGroupOfExtension(extension.extensionKey);
+            if (!pageGroup.isNull())
+                description->setString("pageGroup"_s, pageGroup);
             description->setString("handlerURL"_s, handler.handlerURL.string());
             description->setBoolean("canEmbed"_s, handler.canEmbed);
             auto urlPatterns = JSON::Array::create();
             for (auto& pattern : extension.urlPatterns)
                 urlPatterns->pushString(pattern);
             description->setArray("urlPatterns"_s, WTF::move(urlPatterns));
-            handlers.set(handler.mimeType, WTF::move(description));
+            handlers.set(makeString(handler.mimeType.convertToASCIILowercase(), '\n', pageGroup), WTF::move(description));
         }
     }
     auto array = JSON::Array::create();

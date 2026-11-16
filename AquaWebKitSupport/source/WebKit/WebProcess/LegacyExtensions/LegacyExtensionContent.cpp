@@ -1232,7 +1232,7 @@ void LegacyExtensionContent::invalidateExtensionPage(WebCore::FrameIdentifier fr
 
 void LegacyExtensionContent::setMimeHandlers(String&& handlersJSON)
 {
-    HashMap<String, WebCore::LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash> handlers;
+    HashMap<String, Vector<WebCore::LegacyExtensionMimeHandler>, ASCIICaseInsensitiveHash> handlers;
     auto value = JSON::Value::parseJSON(handlersJSON);
     if (RefPtr array = value ? value->asArray() : nullptr) {
         for (auto& entry : *array) {
@@ -1244,7 +1244,9 @@ void LegacyExtensionContent::setMimeHandlers(String&& handlersJSON)
                 for (auto& pattern : *patterns)
                     urlPatterns.append(WebCore::UserContentURLPattern { pattern->asString() });
             }
-            handlers.set(handler->getString("mimeType"_s), WebCore::LegacyExtensionMimeHandler { handler->getString("extensionKey"_s), URL { handler->getString("handlerURL"_s) }, handler->getBoolean("canEmbed"_s).value_or(false), WTF::move(urlPatterns) });
+            handlers.ensure(handler->getString("mimeType"_s), [] {
+                return Vector<WebCore::LegacyExtensionMimeHandler> { };
+            }).iterator->value.append(WebCore::LegacyExtensionMimeHandler { handler->getString("extensionKey"_s), handler->getString("pageGroup"_s), URL { handler->getString("handlerURL"_s) }, handler->getBoolean("canEmbed"_s).value_or(false), WTF::move(urlPatterns) });
         }
     }
     WebCore::LegacyExtensionMimeHandlerDocument::setHandlers(WTF::move(handlers));

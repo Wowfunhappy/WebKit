@@ -82,6 +82,11 @@ private:
 class LegacyExtensionHost final : public IPC::MessageReceiver {
 public:
     static LegacyExtensionHost& singleton();
+    // Whether an extension sees a page: an extension Safari runs sees every page, and a Web Clip's copy of one,
+    // whose key ends in "." and the clip's identifier, sees the pages of the page group the clip names.
+    static bool extensionSeesPage(StringView extensionKey, WebPageProxy&);
+    // The page group whose pages an extension sees, null for every page's.
+    static String pageGroupOfExtension(StringView extensionKey);
 
     void ref() const final { }
     void deref() const final { }
@@ -114,18 +119,20 @@ public:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     void dispatchWebRequestEvent(const String& eventName, const String& details, CompletionHandler<void(String&&)>&&);
-    // An event whose details already name the load's tab and frames as the API reports them.
-    void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&);
+    // An event whose details already name the load's tab and frames as the API reports them. A load an
+    // extension's own view makes reaches the extensions that see that extension's pages.
+    void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&, const String& originatingExtensionKey = { });
     void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
     // proxy.onProxyError, with its `{ fatal, error, details }` as JSON.
     void dispatchProxyError(const String& details);
     // An event of a StreamFilter an extension context attached to a network process's load.
     void dispatchResponseFilterEvent(uint64_t filterID, const String& event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
 
-    // declarativeNetRequest and registered content scripts: the user content controllers extensions' rule lists and
-    // scripts are added to and removed from, those of the tab pages and every one a tab page had, as a page group
-    // keeps its controller, and what it holds, when its last tab closes; and the rule lists a page's load matched.
-    Vector<Ref<WebUserContentControllerProxy>> userContentControllers();
+    // declarativeNetRequest and registered content scripts: the user content controllers an extension's rule lists and
+    // scripts are added to and removed from, those of the tab pages it sees and every one such a tab page had, as a
+    // page group keeps its controller, and what it holds, when its last tab closes; and the rule lists a page's load
+    // matched.
+    Vector<Ref<WebUserContentControllerProxy>> userContentControllers(const String& extensionKey);
     void contentRuleListNotification(WebPageProxy&, const URL&, const WebCore::ContentRuleListResults&);
 
     // WebKit 1 host contexts.
@@ -339,12 +346,13 @@ private:
     void framesDidGoAway(const Vector<WebCore::FrameIdentifier>&);
     void finishRouterCallIfComplete(uint64_t);
     void finishWebRequestCallIfComplete(uint64_t);
-    void dispatchEvent(const String& eventName, Ref<JSON::Array>&& arguments);
+    // Events of a tab reach the extensions that see its page; those of no tab, every extension.
+    void dispatchEvent(const String& eventName, WebPageProxy* tab, Ref<JSON::Array>&& arguments);
     // An event with its arguments as an extension that sees the page at `pageURL` gets them, and as one that does
     // not; null arguments do not reach it.
-    void dispatchEvent(const String& eventName, const URL& pageURL, RefPtr<JSON::Array>&& visibleArguments, RefPtr<JSON::Array>&& hiddenArguments);
+    void dispatchEvent(const String& eventName, WebPageProxy* tab, const URL& pageURL, RefPtr<JSON::Array>&& visibleArguments, RefPtr<JSON::Array>&& hiddenArguments);
     // A webNavigation event of a frame, for the extensions that see its URL.
-    void dispatchNavigationEvent(const String& eventName, Ref<JSON::Object>&& details, const URL&);
+    void dispatchNavigationEvent(const String& eventName, WebPageProxy& tab, Ref<JSON::Object>&& details, const URL&);
     void updateNetworkListeners();
     void updateCookieObservers();
     void loadWebsiteAccess(const String& extensionKey, const URL&);
@@ -405,7 +413,8 @@ private:
     // LegacyExtensionAPI.js describes them with their sources, and the user scripts tab pages' controllers hold of them.
     HashMap<String, Ref<JSON::Array>> m_registeredContentScripts;
     HashMap<String, Vector<Ref<API::UserScript>>> m_registeredUserScripts;
-    WeakHashSet<WebUserContentControllerProxy> m_controllersWithExtensionContent;
+    // Each controller a tab page had, by the page group of its pages.
+    WeakHashMap<WebUserContentControllerProxy, String> m_controllersWithExtensionContent;
     // The extensions whose scripts of an earlier session are being restored, and their scripting calls that wait for
     // them; each loaded extension's version, as its Info.plist gives it.
     HashSet<String> m_restoringContentScripts;

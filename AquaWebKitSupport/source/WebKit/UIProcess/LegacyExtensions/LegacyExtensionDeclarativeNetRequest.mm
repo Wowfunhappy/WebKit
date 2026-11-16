@@ -409,7 +409,7 @@ void LegacyExtensionDeclarativeNetRequest::addDeclarativeNetRequestRules(WebUser
 
 void LegacyExtensionDeclarativeNetRequest::removeDeclarativeNetRequestRules()
 {
-    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers())
+    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers(m_extensionKey))
         controller->removeContentRuleList(m_extensionKey);
 }
 
@@ -468,7 +468,7 @@ void LegacyExtensionDeclarativeNetRequest::compileDeclarativeNetRequestRules(NSM
                     return completionHandler(false);
 
                 if (foundRuleList && [previouslyLoadedHash isEqualToString:hashOfWebKitRules.get()]) {
-                    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers())
+                    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers(m_extensionKey))
                         controller->addContentRuleList(*foundRuleList, m_root);
                     return completionHandler(true);
                 }
@@ -485,7 +485,7 @@ void LegacyExtensionDeclarativeNetRequest::compileDeclarativeNetRequestRules(NSM
                     [m_state setObject:hashOfWebKitRules.get() forKey:lastLoadedDeclarativeNetRequestHashStateKey];
                     writeStateToStorage();
 
-                    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers())
+                    for (Ref controller : LegacyExtensionHost::singleton().userContentControllers(m_extensionKey))
                         controller->addContentRuleList(*ruleList, m_root);
                     completionHandler(true);
                 });

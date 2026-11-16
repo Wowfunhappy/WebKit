@@ -135,6 +135,9 @@ typedef NS_OPTIONS(NSUInteger, _WKRenderingProgressEvents) {
     _WKRenderingProgressEventFirstMeaningfulPaint = 1 << 8,
 };
 
+@interface WKWebViewConfiguration (WCWebKitSPI)
+@property (nonatomic, copy, setter=_setGroupIdentifier:) NSString *_groupIdentifier;
+@end
 @interface WKWebView (WCWebKitSPI)
 @property (nonatomic, setter=_setObservedRenderingProgressEvents:) _WKRenderingProgressEvents _observedRenderingProgressEvents;
 @property (nonatomic, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect;

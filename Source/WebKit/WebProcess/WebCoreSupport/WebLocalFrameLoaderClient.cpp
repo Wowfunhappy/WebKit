@@ -1964,7 +1964,7 @@ ObjectContentType WebLocalFrameLoaderClient::objectContentType(const URL& url, c
             return ObjectContentType::Frame;
     }
 #endif
-    if (LegacyExtensionMimeHandlerDocument::handlesEmbedded(url, mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
+    if (LegacyExtensionMimeHandlerDocument::handlesEmbedded(m_localFrame->page(), url, mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
         return ObjectContentType::Frame;
     if (MIMETypeRegistry::isSupportedImageMIMEType(mimeType))
         return ObjectContentType::Image;

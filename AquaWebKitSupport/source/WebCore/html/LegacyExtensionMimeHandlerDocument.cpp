@@ -14,6 +14,7 @@
 #include "JSDOMGlobalObject.h"
 #include "LegacyExtensionResourceAccess.h"
 #include "LocalFrame.h"
+#include "Page.h"
 #include "RawDataDocumentParser.h"
 #include "SecurityOrigin.h"
 #include "SharedBuffer.h"
@@ -29,10 +30,24 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyExtensionMimeHandlerDocument);
 
 using namespace HTMLNames;
 
-static HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>& handlers()
+static HashMap<String, Vector<LegacyExtensionMimeHandler>, ASCIICaseInsensitiveHash>& handlers()
 {
-    static NeverDestroyed<HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>> handlers;
+    static NeverDestroyed<HashMap<String, Vector<LegacyExtensionMimeHandler>, ASCIICaseInsensitiveHash>> handlers;
     return handlers;
+}
+
+static const LegacyExtensionMimeHandler* handlerFor(const Page* page, const String& mimeType)
+{
+    if (mimeType.isEmpty())
+        return nullptr;
+    auto iterator = handlers().find(mimeType);
+    if (iterator == handlers().end())
+        return nullptr;
+    for (auto& handler : iterator->value) {
+        if (handler.pageGroup.isNull() || (page && handler.pageGroup == page->groupName()))
+            return &handler;
+    }
+    return nullptr;
 }
 
 static WeakHashSet<LegacyExtensionMimeHandlerDocument, WeakPtrImplWithEventTargetData>& documents()
@@ -66,28 +81,24 @@ bool LegacyExtensionMimeHandler::serves(const URL& url) const
     });
 }
 
-void LegacyExtensionMimeHandlerDocument::setHandlers(HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>&& newHandlers)
+void LegacyExtensionMimeHandlerDocument::setHandlers(HashMap<String, Vector<LegacyExtensionMimeHandler>, ASCIICaseInsensitiveHash>&& newHandlers)
 {
     handlers() = WTF::move(newHandlers);
 }
 
-bool LegacyExtensionMimeHandlerDocument::handles(const String& mimeType)
+bool LegacyExtensionMimeHandlerDocument::handles(const Page* page, const String& mimeType)
 {
     auto& response = decidingResponse();
     if (response && response->isEmbedded)
-        return handlesEmbedded(response->url, mimeType);
-    if (mimeType.isEmpty())
-        return false;
-    auto iterator = handlers().find(mimeType);
-    return iterator != handlers().end() && (!response || iterator->value.serves(response->url));
+        return handlesEmbedded(page, response->url, mimeType);
+    auto* handler = handlerFor(page, mimeType);
+    return handler && (!response || handler->serves(response->url));
 }
 
-bool LegacyExtensionMimeHandlerDocument::handlesEmbedded(const URL& url, const String& mimeType)
+bool LegacyExtensionMimeHandlerDocument::handlesEmbedded(const Page* page, const URL& url, const String& mimeType)
 {
-    if (mimeType.isEmpty())
-        return false;
-    auto iterator = handlers().find(mimeType);
-    return iterator != handlers().end() && iterator->value.canEmbed && iterator->value.serves(url);
+    auto* handler = handlerFor(page, mimeType);
+    return handler && handler->canEmbed && handler->serves(url);
 }
 
 // The body arrives here; the document loader keeps it.
@@ -126,11 +137,11 @@ private:
 
 RefPtr<Document> LegacyExtensionMimeHandlerDocument::createIfHandled(LocalFrame& frame, const URL& url, const String& mimeType)
 {
-    auto iterator = mimeType.isEmpty() ? handlers().end() : handlers().find(mimeType);
+    auto* handler = handlerFor(frame.page(), mimeType);
     bool isEmbedded = !frame.isMainFrame();
-    if (iterator == handlers().end() || (isEmbedded && !iterator->value.canEmbed) || !iterator->value.serves(url))
+    if (!handler || (isEmbedded && !handler->canEmbed) || !handler->serves(url))
         return nullptr;
-    Ref document = adoptRef(*new LegacyExtensionMimeHandlerDocument(frame, url, mimeType, iterator->value, isEmbedded));
+    Ref document = adoptRef(*new LegacyExtensionMimeHandlerDocument(frame, url, mimeType, *handler, isEmbedded));
     document->addToContextsMap();
     documents().add(document.get());
     return document;
