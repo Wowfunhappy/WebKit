@@ -708,6 +708,10 @@ fast/forms/search/search-zoom-computed-style-height.html [ Skip ]
 # both drivers' dumps also carry Tahoe's control-font metrics.
 fast/forms/time/time-input-rendering-basic.html [ Skip ]
 
+# 10.9's clock-and-calendar NSDatePicker takes no keys (its cell's calendar key handler returns NO), so the arrow
+# keys and space this test sends to the picker do nothing.
+fast/forms/datetimelocal/datetimelocal-editable-components/picker-keyboard-accessibility.html [ Skip ]
+
 # Maintainer scope decision: the Ahem test font's cap height sizes this initial letter at 80px, not 96px.
 fast/css-generated-content/initial-letter-first-line-wrapping.html [ Skip ]
 
@@ -989,7 +993,6 @@ http/tests/site-isolation/accessibility/ [ Skip ]
 fast/text/accessibility-bold-system-font/ [ Skip ]
 platform/mac-wk2/accessibility/ [ Skip ]
 fast/forms/datetimelocal/datetimelocal-editable-components/accessibility-opens-picker.html [ Skip ]
-fast/forms/datetimelocal/datetimelocal-editable-components/picker-keyboard-accessibility.html [ Skip ]
 media/accessibility-describes-video.html [ Skip ]
 http/tests/media/hls/hls-accessibility-describes-video.html [ Skip ]
 

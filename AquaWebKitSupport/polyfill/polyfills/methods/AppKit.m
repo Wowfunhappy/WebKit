@@ -255,11 +255,10 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 WK_POLYFILL_ADD_METHODS(NSAppearance)
 // 10.14 renamed +currentAppearance (which it deprecated for the setter's sake) to +currentDrawingAppearance;
 // the value is the same one -setCurrentAppearance:/-_performWithCurrentAppearance: install for the calling
-// thread. 10.9 never leaves it unset, but fall back to Aqua rather than hand back nil, as 10.14+ does not.
+// thread.
 + (NSAppearance *)currentDrawingAppearance
 {
-    NSAppearance *current = [NSAppearance currentAppearance];
-    return current ?: [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    return [NSAppearance currentAppearance];
 }
 - (NSColor *)tintColor { return [NSColor alternateSelectedControlColor]; } // 10.9 accent
 // 10.9's name for the same CoreUI draw. The view argument only supplies a backing-scale/geometry context

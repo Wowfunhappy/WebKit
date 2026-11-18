@@ -232,6 +232,9 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     [_datePicker setDatePickerStyle:NSDatePickerStyleClockAndCalendar];
     [_datePicker setDatePickerElements:NSDatePickerElementFlagYearMonthDay];
     [_datePicker setTimeZone:timeZone.get()];
+    // AQUAWEBKIT: 10.9's graphical calendar maps days to dates through -calendar, falling back to +currentCalendar in
+    // the system time zone when none is set; -setCalendar: copies the calendar and gives it the picker's time zone.
+    [_datePicker setCalendar:retainPtr([NSCalendar currentCalendar]).get()];
     [_datePicker setTarget:self];
     [_datePicker setAction:@selector(didChooseDate:)];
     // Don't draw a focus ring around the entire calendar view as a focus indicator is inherently rendered
