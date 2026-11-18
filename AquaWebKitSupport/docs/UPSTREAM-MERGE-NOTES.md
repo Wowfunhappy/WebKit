@@ -45,6 +45,12 @@ OS's newest Safari, and that file keeps a past lookup. Configure fails while nei
 release for the version, so merge a release line once Apple has shipped it. When two releases list the
 same build, the script prints both and takes the higher.
 
+## The port revision
+
+The bundle version ends in `AQUAWEBKIT_REVISION` (`AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake`),
+this port's revision of the upstream version before it: `9625.2.8.11.9.1` is revision 1 of
+`625.2.8.11.9`. A merge that moves `Configurations/Version.xcconfig` sets it back to 1.
+
 ## New `USE(GLIB)` blocks that assume GLib *is* the platform
 
 We define `USE(GLIB)` for gstreamer, but mostly use Cocoa APIs. Be mindful of any new or changed `#if USE(GLIB)` blocks which activate on Cocoa and either won't compile or displace a Cocoa subsystem we need.

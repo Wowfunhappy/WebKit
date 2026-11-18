@@ -73,10 +73,12 @@ set(ICU_I18N_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH
 set(ICU_UC_LIBRARY   "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 
-# Bundle versions are Version.xcconfig's Production ones: the system version prefix, x for macOS 10.x,
-# before FULL_VERSION, and the prefix before MAJOR_VERSION for the short version (9625.2.8.11.9 and
-# 9625 on 10.9). The frameworks take them from CMake's MACOSX_FRAMEWORK_* variables, and the XPC
-# services from WEBKIT_VERSION and WEBKIT_VERSION_MAJOR.
+# The bundle version is Version.xcconfig's Production one, the system version prefix (x for macOS 10.x)
+# before FULL_VERSION, followed by .AQUAWEBKIT_REVISION, this port's revision; the short version is
+# Version.xcconfig's Production one, the prefix before MAJOR_VERSION (9625.2.8.11.9.1 and 9625 on 10.9).
+# The frameworks take them from CMake's MACOSX_FRAMEWORK_* variables, and the XPC services from
+# WEBKIT_VERSION and WEBKIT_VERSION_MAJOR.
+set(AQUAWEBKIT_REVISION 1)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig")
 file(STRINGS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig" _aquawebkit_version_lines
     REGEX "^(MAJOR|MINOR|TINY|MICRO|NANO)_VERSION = [0-9]+;")
@@ -87,7 +89,7 @@ endforeach ()
 string(REGEX MATCH "^10\\.([0-9]+)" _ "${CMAKE_OSX_DEPLOYMENT_TARGET}")
 set(_aquawebkit_system_version_prefix "${CMAKE_MATCH_1}")
 set(MACOSX_FRAMEWORK_BUNDLE_VERSION
-    "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}.${_aquawebkit_MINOR}.${_aquawebkit_TINY}.${_aquawebkit_MICRO}.${_aquawebkit_NANO}")
+    "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}.${_aquawebkit_MINOR}.${_aquawebkit_TINY}.${_aquawebkit_MICRO}.${_aquawebkit_NANO}.${AQUAWEBKIT_REVISION}")
 set(MACOSX_FRAMEWORK_SHORT_VERSION_STRING "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}")
 set(WEBKIT_VERSION "${MACOSX_FRAMEWORK_BUNDLE_VERSION}")
 set(WEBKIT_VERSION_MAJOR "${MACOSX_FRAMEWORK_SHORT_VERSION_STRING}")
