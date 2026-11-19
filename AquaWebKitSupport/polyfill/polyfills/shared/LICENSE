@@ -1,3 +1,11 @@
+Copyright (c) 2010, 2018, 2019 Chris Jones <jonesc@macports.org>
+Copyright (c) 2018 Ken Cunningham <kencu@macports.org>
+Copyright (c) 2019 Michael Dickens <michaelld@macports.org>
+Copyright (c) 2018, 2019, 2021, 2025
+Copyright (C) 2023 raf <raf@raf.org>, Tavian Barnes <tavianator@tavianator.com>
+Copyright (c) 2025 Frederick H. G. Wright II <fw@fwright.net>
+Copyright (c) 2026 Wowfunhappy
+
 Permission to use, copy, modify, and distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
 copyright notice and this permission notice appear in all copies.
@@ -10,11 +18,16 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-Files here from macports-legacy-support keep their own notices. Most are
-under the ISC-style terms above, as is include/assert.h, which carries no
-notice of its own. atcalls.c, atcalls.h, utimensat.c and include/unistd.h
-are under the Apple Public Source License, Version 2.0, whose text is in
-APSL-2.0.txt.
+The files of the polyfill layer's shared directory
+(AquaWebKitSupport/polyfill/polyfills/shared) that come from
+macports-legacy-support keep their own notices. Most are under the
+ISC-style terms above, as is include/assert.h, which carries no notice of
+its own. atcalls.c, atcalls.h and utimensat.c are under the Apple Public
+Source License, Version 2.0, whose text accompanies this file as
+APSL-2.0.txt. include/unistd.h carries three notices: Chris Jones's, under
+the ISC-style terms above; Apple's, under the Apple Public Source License;
+and that of the Regents of the University of California, under the BSD
+license it states.
 
-Every other file here is this port's own, under the BSD 2-Clause license in
-AquaWebKitSupport/LICENSE.
+Every other file in that directory is part of Aqua WebKit, under the BSD
+2-Clause License in AquaWebKitSupport/LICENSE.

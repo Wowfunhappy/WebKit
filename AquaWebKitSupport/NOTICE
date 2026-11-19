@@ -4,21 +4,39 @@ The source code for Aqua WebKit is available at https://github.com/Wowfunhappy/W
 
 LICENSES
 
-Aqua WebKit's own source code, including the Web Clip plug-in, is distributed under the terms of the BSD 2-Clause License, reproduced below under "Aqua WebKit".
+Aqua WebKit's own source code, which includes the source of the Web Clip plug-in's 64-bit code, is distributed under the terms of the BSD 2-Clause License, reproduced below under "Aqua WebKit". A file from WebKit or another project that carries its own notice, with Aqua WebKit's changes to it, is distributed under the terms of that notice, reproduced below under that project's name.
 
 WebKit is open source software with portions distributed under the terms of the GNU Lesser General Public License (LGPL), version 2 or 2.1, most of them with the option of any later version, and portions under the terms of BSD-style and other licenses, reproduced below under "WebKit".
 
 WebCore.framework includes libheif, which is distributed under the terms of the LGPL, version 3.
 
-JavaScriptCore.framework includes the LLVM C++ runtime (libc++ and libc++abi), which is distributed under the terms of the Apache License v2.0 with LLVM Exceptions.
+WebCore.framework's GStreamer FDK AAC plug-in (libgstfdkaac) includes the Fraunhofer FDK AAC Codec Library for Android, which is distributed under the terms of its own license, reproduced below under "Fraunhofer FDK AAC".
 
-The closed-caption GStreamer plug-in and the PDF library (libwk_pdf) include the Rust crates listed below under "Rust crate".
+Two of WebCore.framework's GStreamer plug-ins include code distributed under the terms of the GNU General Public License (GPL), version 2 or later, and are distributed under the same terms: libgstx264, which includes x264, and libgstmpegpsmux, which includes a bit writer from the VideoLAN project. No other part of this product is distributed under the terms of the GPL.
+
+The text of the GPL, version 2, appears below under "x264" and, for the bit writer, under "GNU General Public License, version 2". Beside the LGPL that governs each, mpg123's license file also reproduces the GPL, version 2, and libheif's the GPL, version 3.
+
+Where a file offers a choice of licenses, this product takes the one its notice is listed under below, or, where its notice is listed under none, the terms the notice itself states.
+
+WebCore.framework includes Mozilla's Readability, which is distributed under the terms of the Apache License 2.0, reproduced below under "Readability".
+
+Parts of WebKit, the Readerable.js script from Firefox that WebCore.framework includes, and the closed-caption GStreamer plug-in are distributed under the terms of the Mozilla Public License 2.0, reproduced below under "Mozilla Public License 2.0" and, for the plug-in, under "Rust crate gst-plugin-closedcaption 0.15.2 (MPL-2.0)". Their source code is available: for WebKit, from the repository above; for the others, as the upstream sources AquaWebKitSupport/deps/build_deps.sh fetches, with the patches in AquaWebKitSupport/deps/patches.
+
+The 32-bit (i386) code of JavaScriptCore, WebCore, WebKit and WebKit2 is that of OS X 10.9.5, unchanged. Its source is the Safari-537.78.2 tag in the repository above, and its licenses are reproduced below under "OS X 10.9.5 WebKit (32-bit code)". WebKit.framework also includes OS X 10.9.5's WebKit headers and resources for that code, unchanged, and WebCore.framework's localized strings include OS X 10.9.5's translations. Those built from the tag are distributed under its licenses. The rest (WebKit.framework's localized panels and BridgeSupport file, and the translations) are not in the tag, and the licenses below do not cover them.
+
+The 32-bit code of the Web Clip plug-in (WebClip) is that of OS X 10.9.5's Web Clip widget, unchanged; it is not open source software, and the licenses below do not cover it. The widget's other files, apart from the code Aqua WebKit builds, are likewise OS X 10.9.5's, except that Aqua WebKit patches WebClip.html, WebClip.css and WebClip.js and sets the version numbers and a plug-in setting in the widget's property lists. They are not open source software, and the licenses below do not cover them.
+
+JavaScriptCore.framework includes the LLVM C++ runtime (libc++ and libc++abi, with parts of LLVM's libc and libunwind), which is distributed under the terms of the Apache License v2.0 with LLVM Exceptions, reproduced below under "LLVM runtime libraries (libc++, libc++abi, libc, libunwind)".
+
+JavaScriptCore.framework includes ICU (libicucore), which is distributed under the terms of the Unicode License v3, reproduced below under "ICU".
+
+The closed-caption GStreamer plug-in and the PDF library (libwk_pdf) include the Rust crates listed below, each under its name, among them the Rust standard library's, whose notices for files under other licenses are reproduced below under "Rust standard library".
 
 NOTICE OF COMBINED LIBRARIES
 
 This notice is given under section 7(b) of the LGPL, version 2.1, and section 5(b) of the LGPL, version 3.
 
-JavaScriptCore, WebKit, WebKit2, WebCore, and each other library in this product that is distributed under the terms of the LGPL are combined libraries. Part of each is a work based on a library distributed under the terms of the LGPL, and part is other library facilities: the Aqua WebKit polyfill layer (AquaWebKitSupport/polyfill in the source code). Part of the polyfill layer is distributed under the terms of the Apple Public Source License 2.0, reproduced below under "Polyfill layer".
+JavaScriptCore, WebKit, WebKit2, WebCore, and each other library in this product that is distributed under the terms of the LGPL are combined libraries. Part of each is a work based on a library distributed under the terms of the LGPL, and part is other library facilities: the Aqua WebKit polyfill layer (AquaWebKitSupport/polyfill in the source code). Part of the polyfill layer is distributed under the terms of the Apple Public Source License 2.0, reproduced below under "Polyfill layer (MacPorts legacy support)".
 
 The uncombined form of each such work is available in source code form: for WebKit, from the repository above; for every other library, as its upstream release with the patches in AquaWebKitSupport/deps/patches.
 

@@ -1,0 +1,11 @@
+--- a/meson.build
++++ b/meson.build
+@@ -512,7 +512,7 @@
+             '-f', nasm_format,
+             '-I', '@0@/src/'.format(dav1d_src_root),
+             '-I', '@0@/'.format(meson.current_build_dir()),
+-            '-MQ', '@OUTPUT@', '-MF', '@DEPFILE@',
++            '-MQ', '@OUTPUT@', '-MD', '@DEPFILE@',
+             '@EXTRA_ARGS@',
+             '@INPUT@',
+             '-o', '@OUTPUT@'

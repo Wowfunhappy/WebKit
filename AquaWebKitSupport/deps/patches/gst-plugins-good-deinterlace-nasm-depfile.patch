@@ -1,0 +1,13 @@
+--- a/gst/deinterlace/meson.build
++++ b/gst/deinterlace/meson.build
+@@ -96,7 +96,9 @@
+   message('Nasm configured on x86-64')
+   asm_gen = generator(nasm,
+     output: outputname,
+-    arguments: ['-I@CURRENT_SOURCE_DIR@',
++    depfile: outputname + '.d',
++    arguments: ['-MQ', '@OUTPUT@', '-MD', '@DEPFILE@',
++                '-I@CURRENT_SOURCE_DIR@',
+                 '-I@CURRENT_SOURCE_DIR@/@0@/'.format(asm_incdir),
+                 asm_arch_def,
+                 asm_stackalign_def,

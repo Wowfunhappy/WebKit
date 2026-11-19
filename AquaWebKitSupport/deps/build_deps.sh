@@ -449,18 +449,28 @@ prepare()  { [ ! -f "$1/.prepared" ]; }
 prepared() { : > "$1/.prepared"; }
 
 # built <label> <product> / finished <label> <dir>: the whole-package skip, for the static libraries
-# and the build tools. They are built before the force_load below reaches any link, so no archive
-# change can invalidate one: once its product is in the tree the package is done for this recipe,
-# and its build dir -- ICU's is the largest here -- is dropped. <product> is a path within the tree.
+# and the build tools. Neither links the gap archive, so no archive change can invalidate one: once its
+# product is in the tree the package is done for this recipe, and its build dir -- ICU's is the largest
+# here -- is dropped. What the dir compiled stays in manifests/<label>.json (scripts/compiled_sources.py),
+# which scripts/generate-legal.py reads. <product> is a path within the tree.
 built() {
   [ -e "$SCRATCH/$2" ] || return 1
+  [ -f "$SCRATCH/manifests/$1.json" ] || return 1
   [ "$(cat "$SCRATCH/stamps/$1" 2>/dev/null)" = "$(recipe_key "${BASH_LINENO[0]}")" ] || return 1
   echo "  already built"
 }
 finished() {
   local k
   k=$(recipe_key "${BASH_LINENO[0]}") || return 1
+  "$REPO/AquaWebKitSupport/toolchain/build/python3/bin/python3" -I "$REPO/AquaWebKitSupport/scripts/compiled_sources.py" \
+      manifest "${2:?}" "$SCRATCH/manifests/$1.json" || return 1
   mkdir -p "$SCRATCH/stamps" && printf '%s\n' "$k" > "$SCRATCH/stamps/$1" && rm -rf "${2:?}"
+}
+# link_record <image> <input>...: the objects and archives a recipe links into an image itself, with no
+# build system to record them, in links/<image name>.txt for scripts/generate-legal.py.
+link_record() {
+  local image="$1"; shift
+  mkdir -p "$SCRATCH/links" && printf '%s\n' "$@" > "$SCRATCH/links/$(basename "$image").txt"
 }
 
 echo "==== Apple ICU 76142.5.1.200 ===="
@@ -488,9 +498,10 @@ if ! built icu install/lib/libicuuc.a; then
         'bool _os_feature_enabled_impl(const char *domain, const char *feature);' \
         > "$d/apple-sdk/os/feature_private.h" || exit 1
     cp -p "$d/icu/LICENSE" "$d/icu/icu4c/LICENSE" || exit 1
+    # -MD: a depfile for every object, the data library's included, which ICU's own rules do not write.
     ( cd "$d/icu/icu4c/source" \
       && CPPFLAGS="-DSTD_INSPIRED -DU_SHOW_CPLUSPLUS_API=1 -DU_SHOW_INTERNAL_API=1 -DU_TIMEZONE=timezone -DUCONFIG_NO_MF2=1 -idirafter $d/apple-sdk" \
-         CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
+         CFLAGS="$CFLAGS -MD" CXXFLAGS="$CXXFLAGS -std=c++17 -MD" ./configure --prefix="$STAGE" \
            --enable-static --disable-shared --disable-renaming \
            --disable-samples --disable-tests --disable-extras --disable-icuio --disable-layoutex \
       && make -j2 && make install ) || exit 1
@@ -519,7 +530,8 @@ u=https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2
 # the archive instead of the pure-C one.
 if ! built gcrypt install/lib/libgcrypt.a; then
     d=$(get "$u" gcrypt)
-    ( cd "$d" && ./configure CC="$CC_VANILLA" ac_cv_sys_symbol_underscore=yes --prefix="$STAGE" \
+    # -MD: a depfile for the objects libgcrypt's own rules compile without automake's.
+    ( cd "$d" && ./configure CC="$CC_VANILLA" CFLAGS="$CFLAGS -MD" ac_cv_sys_symbol_underscore=yes --prefix="$STAGE" \
         --disable-shared --enable-static --disable-doc --disable-nls --with-libgpg-error-prefix="$STAGE" \
       && make -j2 && make install ) || exit 1
     finished gcrypt "$d"
@@ -555,7 +567,7 @@ u=https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz
 if ! built woff2 install/lib/libwoff2dec.a; then
     d=$(get "$u" woff2)
     ( cd "$d" && \
-      $CXX -std=c++11 -O2 -mmacosx-version-min=10.9 -fno-exceptions \
+      $CXX -std=c++11 -O2 -mmacosx-version-min=10.9 -fno-exceptions -MD \
         -Iinclude -Isrc -I"$STAGE/include" -c \
         src/woff2_dec.cc src/table_tags.cc src/variable_length.cc \
         src/woff2_common.cc src/woff2_out.cc \
@@ -583,7 +595,7 @@ if ! built ots install/lib/libots.a; then
       && printf '#define OTS_SYNTHESIZE_MISSING_GVAR 1\n#define OTS_COLR_CYCLE_CHECK 1\n' > src/config.h \
       && $CXX -std=c++11 -O2 -mmacosx-version-min=10.9 -fno-exceptions -fno-rtti \
            -fvisibility=hidden -fvisibility-inlines-hidden \
-           -DHAVE_CONFIG_H -Iinclude -Isrc -I"$STAGE/include" -c \
+           -DHAVE_CONFIG_H -MD -Iinclude -Isrc -I"$STAGE/include" -c \
            $(ls src/*.cc | grep -v -E 'src/(feat|glat|gloc|sile|silf|sill)\.cc') \
       && "$AR" rcs libots.a *.o \
       && cp include/opentype-sanitiser.h "$STAGE/include/" \
@@ -667,7 +679,7 @@ u=https://github.com/mm2/Little-CMS/releases/download/lcms2.16/lcms2-2.16.tar.gz
 if ! built lcms2 install/lib/liblcms2.a; then
     d=$(get "$u" lcms2)
     ( cd "$d" \
-      && $CC $CFLAGS -Iinclude -Isrc -c src/*.c \
+      && $CC $CFLAGS -MD -Iinclude -Isrc -c src/*.c \
       && "$AR" rcs liblcms2.a *.o \
       && cp liblcms2.a "$STAGE/lib/" \
       && cp include/lcms2.h include/lcms2_plugin.h "$STAGE/include/" ) || exit 1
@@ -1044,6 +1056,7 @@ ICU_DYLIB="$STAGE/lib/libicucore.78.dylib"
     -compatibility_version 1.0.0 -current_version 78.1.0 \
     -Wl,-force_load,"$STAGE/lib/libicuuc.a" -Wl,-force_load,"$STAGE/lib/libicui18n.a" \
     -Wl,-force_load,"$STAGE/lib/libicudata.a" -o "$ICU_DYLIB.next" || exit 1
+link_record "$ICU_DYLIB" "$STAGE/lib/libicuuc.a" "$STAGE/lib/libicui18n.a" "$STAGE/lib/libicudata.a" || exit 1
 if cmp -s "$ICU_DYLIB.next" "$ICU_DYLIB"; then rm -f "$ICU_DYLIB.next"; else mv -f "$ICU_DYLIB.next" "$ICU_DYLIB" || exit 1; fi
 
 echo "==== libpsl 0.21.5 ===="
@@ -1090,11 +1103,12 @@ if prepare "$d"; then
 fi
 mkdir -p "$d/out" || exit 1
 for s in blocksort huffman crctable randtable compress decompress bzlib; do
-    $CC --no-default-config -O2 -mmacosx-version-min=10.9 -D_FILE_OFFSET_BITS=64 -c "$d/$s.c" -o "$d/out/$s.o" || exit 1
+    $CC --no-default-config -O2 -mmacosx-version-min=10.9 -D_FILE_OFFSET_BITS=64 -MD -c "$d/$s.c" -o "$d/out/$s.o" || exit 1
 done
 BZIP2_DYLIB="$STAGE/lib/libbz2.1.0.dylib"
 "$CC_BIN" --no-default-config -dynamiclib $LDFLAGS -install_name @rpath/libbz2.1.0.dylib \
     -compatibility_version 1.0.0 -current_version 1.0.8 "$d"/out/*.o -o "$BZIP2_DYLIB.next" || exit 1
+link_record "$BZIP2_DYLIB" "$d"/out/*.o || exit 1
 if cmp -s "$BZIP2_DYLIB.next" "$BZIP2_DYLIB"; then rm -f "$BZIP2_DYLIB.next"; else mv -f "$BZIP2_DYLIB.next" "$BZIP2_DYLIB" || exit 1; fi
 ln -sf libbz2.1.0.dylib "$STAGE/lib/libbz2.dylib" || exit 1
 cp -p "$d/bzlib.h" "$STAGE/include/" || exit 1
@@ -1325,7 +1339,7 @@ for s in buf c14n catalog chvalid debugXML dict DOCBparser encoding entities err
     HTMLtree legacy list nanoftp nanohttp parser parserInternals pattern relaxng SAX SAX2 schematron threads tree \
     uri valid xinclude xlink xmlIO xmlmemory xmlmodule xmlreader xmlregexp xmlsave xmlschemas xmlschemastypes \
     xmlstring xmlunicode xmlwriter xpath xpointer xzlib xmlversion; do
-    $CC $APPLE_XML_CFLAGS -I"$LIBXML2_GEN/include" -I"$d/libxml2/include" -I"$d/libxml2" -I"$STAGE/include" \
+    $CC $APPLE_XML_CFLAGS -MD -I"$LIBXML2_GEN/include" -I"$d/libxml2/include" -I"$d/libxml2" -I"$STAGE/include" \
         -idirafter "$APPLE_XML_SDK" -c "$d/libxml2/$s.c" -o "$d/out/$s.o" || exit 1
 done
 rm -rf "$STAGE/include/libxml2" && mkdir -p "$STAGE/include/libxml2/libxml" \
@@ -1336,6 +1350,7 @@ LIBXML2_DYLIB="$STAGE/lib/libxml2.2.dylib"
     -compatibility_version 10.0.0 -current_version 10.9.0 \
     -Wl,-exported_symbols_list,"$LIBXML2_GEN/libxml2.exp" "$d"/out/*.o \
     -L"$STAGE/lib" -licucore.78 -lz -o "$LIBXML2_DYLIB.next" || exit 1
+link_record "$LIBXML2_DYLIB" "$d"/out/*.o || exit 1
 if cmp -s "$LIBXML2_DYLIB.next" "$LIBXML2_DYLIB"; then rm -f "$LIBXML2_DYLIB.next"; else mv -f "$LIBXML2_DYLIB.next" "$LIBXML2_DYLIB" || exit 1; fi
 ln -sf libxml2.2.dylib "$STAGE/lib/libxml2.dylib" || exit 1
 mkdir -p "$STAGE/lib/pkgconfig" && printf '%s\n' "prefix=$STAGE" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' \
@@ -1355,7 +1370,9 @@ d=$(get "$u" sqlite) || exit 1
 if prepare "$d"; then
     # configure links -lz into everything; only the shell's archive commands call it, so the library
     # drops the load command.
-    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" LDFLAGS="$LDFLAGS -Wl,-dead_strip_dylibs" \
+    # -MD: the amalgamation's depfile, which its Makefile does not write. Only the library is built: the
+    # shell's link would write its own depfile over it.
+    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" CFLAGS="$CFLAGS -MD" LDFLAGS="$LDFLAGS -Wl,-dead_strip_dylibs" \
         ./configure --prefix="$STAGE" \
         --enable-shared --disable-static --enable-threadsafe \
         --enable-fts3 --enable-fts4 --enable-fts5 --enable-rtree \
@@ -1365,7 +1382,7 @@ if prepare "$d"; then
     /usr/bin/sed -i '' '/^OPT_FEATURE_FLAGS = /s/-DSQLITE_THREADSAFE=1/-DSQLITE_THREADSAFE=2 -DSQLITE_USE_URI=1/' "$d/Makefile" || exit 1
     prepared "$d"
 fi
-( cd "$d" && make -j2 && make install ) || exit 1
+( cd "$d" && make -j2 install-dll install-headers install-pc ) || exit 1
 
 echo "==== Apple libxslt 21.13 (libxslt 1.1.35) ===="
 # The libxslt macOS 26.5 ships, the pair of the libxml2 above: WebCore parses an XSLT stylesheet with
@@ -1382,12 +1399,12 @@ fi
 LIBXSLT_GEN="$d/Pregenerated Files"
 for s in attributes attrvt documents extensions extra functions imports keys namespaces numbers pattern preproc \
     security templates transform variables xslt xsltlocale xsltutils; do
-    $CC $APPLE_XML_CFLAGS -D_REENTRANT -I"$LIBXSLT_GEN/include/libxslt" -I"$LIBXSLT_GEN/include" -I"$d/libxslt" \
+    $CC $APPLE_XML_CFLAGS -MD -D_REENTRANT -I"$LIBXSLT_GEN/include/libxslt" -I"$LIBXSLT_GEN/include" -I"$d/libxslt" \
         -I"$d/libxslt/libxslt" -I"$STAGE/include/libxml2" -I"$STAGE/include" -idirafter "$APPLE_XML_SDK" \
         -c "$d/libxslt/libxslt/$s.c" -o "$d/out/libxslt/$s.o" || exit 1
 done
 for s in common crypto date dynamic exslt functions math saxon sets strings; do
-    $CC $APPLE_XML_CFLAGS -D_REENTRANT -I"$LIBXSLT_GEN/include/libexslt" -I"$LIBXSLT_GEN/include/libxslt" \
+    $CC $APPLE_XML_CFLAGS -MD -D_REENTRANT -I"$LIBXSLT_GEN/include/libexslt" -I"$LIBXSLT_GEN/include/libxslt" \
         -I"$LIBXSLT_GEN/include" -I"$d/libxslt" -I"$d/libxslt/libxslt" -I"$d/libxslt/libexslt" \
         -I"$STAGE/include/libxml2" -I"$STAGE/include" -idirafter "$APPLE_XML_SDK" \
         -c "$d/libxslt/libexslt/$s.c" -o "$d/out/libexslt/$s.o" || exit 1
@@ -1401,12 +1418,14 @@ LIBXSLT_DYLIB="$STAGE/lib/libxslt.1.dylib"
     -compatibility_version 3.0.0 -current_version 3.26.0 \
     -Wl,-exported_symbols_list,"$LIBXSLT_GEN/libxslt.exp" "$d"/out/libxslt/*.o "$LIBXML2_DYLIB" \
     -o "$LIBXSLT_DYLIB.next" || exit 1
+link_record "$LIBXSLT_DYLIB" "$d"/out/libxslt/*.o || exit 1
 if cmp -s "$LIBXSLT_DYLIB.next" "$LIBXSLT_DYLIB"; then rm -f "$LIBXSLT_DYLIB.next"; else mv -f "$LIBXSLT_DYLIB.next" "$LIBXSLT_DYLIB" || exit 1; fi
 LIBEXSLT_DYLIB="$STAGE/lib/libexslt.0.dylib"
 "$CC_BIN" -dynamiclib -isysroot "$SDK" $LDFLAGS -install_name "$LIBEXSLT_DYLIB" \
     -compatibility_version 9.0.0 -current_version 9.15.0 \
     -Wl,-exported_symbols_list,"$LIBXSLT_GEN/libexslt.exp" "$d"/out/libexslt/*.o "$LIBXSLT_DYLIB" "$LIBXML2_DYLIB" \
     -o "$LIBEXSLT_DYLIB.next" || exit 1
+link_record "$LIBEXSLT_DYLIB" "$d"/out/libexslt/*.o || exit 1
 if cmp -s "$LIBEXSLT_DYLIB.next" "$LIBEXSLT_DYLIB"; then rm -f "$LIBEXSLT_DYLIB.next"; else mv -f "$LIBEXSLT_DYLIB.next" "$LIBEXSLT_DYLIB" || exit 1; fi
 ln -sf libxslt.1.dylib "$STAGE/lib/libxslt.dylib" && ln -sf libexslt.0.dylib "$STAGE/lib/libexslt.dylib" || exit 1
 printf '%s\n' "prefix=$STAGE" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' 'Name: libxslt' 'Version: 1.1.35' \
@@ -1422,6 +1441,10 @@ echo "==== dav1d 1.4.3 ===="
 # section) -- the runtime's AV1 decoder, also serving libavif below.
 d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d) || exit 1
 if prepare "$d"; then
+    # nasm writes the assembly's dependencies only under -MD. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/dav1d-nasm-depfile.patch" \
+        && patch -p1 < "$HERE/patches/dav1d-nasm-depfile.patch" ) \
+      || { echo "dav1d nasm depfile patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
         -Denable_tools=false -Denable_tests=false ) || exit 1
     prepared "$d"
@@ -1674,6 +1697,10 @@ echo "==== gst-plugins-good ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
     ( cd "$d" && patch -p1 < "$HERE/patches/gst-plugins-good-rtpmp4gpay-channel-count.patch" ) || exit 1
+    # deinterlace: the yadif assembly's dependencies, as nasm writes them under -MD. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-deinterlace-nasm-depfile.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-deinterlace-nasm-depfile.patch" ) \
+      || { echo "gst-plugins-good deinterlace nasm depfile patch failed to apply"; exit 1; }
     # aacparse: emit every complete synchronized ADTS packet without waiting for EOS. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" ) \
@@ -2325,8 +2352,8 @@ for h in content_decryption_module.h content_decryption_module_export.h content_
   fi
   cp "$f" "$DEST/include/cdm/$h" || exit 1
 done
-# The Chromium license the headers name, from Chromium's source at a pinned tag
-# (scripts/generate-legal.py reads it here).
+# The Chromium license the headers name, and the Chromium code WebKit's ANGLE and libwebrtc carry,
+# from Chromium's source at a pinned tag (scripts/generate-legal.py reads it here).
 CHROMIUM_LICENSE_TAG=130.0.6723.0
 f="$SRC/chromium-$CHROMIUM_LICENSE_TAG-LICENSE"
 if [ ! -f "$f" ]; then
@@ -2368,15 +2395,44 @@ if [ ! -f "$f" ]; then
   fetch "https://raw.githubusercontent.com/mozilla-firefox/firefox/$FIREFOX_READERABLE_COMMIT/toolkit/components/reader/Readerable.js" "$f" || exit 1
 fi
 cp "$f" "$DEST/include/readability/FirefoxReaderable.js" || exit 1
-# The MPL 2.0 text Readerable.js is under, from SPDX's license list at a pinned release
-# (scripts/generate-legal.py reads it here).
-MPL_TEXT_SPDX_RELEASE=v3.24.0
-f="$SRC/spdx-$MPL_TEXT_SPDX_RELEASE-MPL-2.0.txt"
-if [ ! -f "$f" ]; then
-  echo "download MPL-2.0.txt" >&2
-  fetch "https://raw.githubusercontent.com/spdx/license-list-data/$MPL_TEXT_SPDX_RELEASE/text/MPL-2.0.txt" "$f" || exit 1
-fi
 echo "  firefox Readerable.js at $FIREFOX_READERABLE_COMMIT"
+
+echo "==== license texts ===="
+# License texts scripts/generate-legal.py reads here beside the trees': the SPDX license list's text
+# of each standard license a notice or license file names whose text its section lacks (MPL 2.0 is
+# Readerable.js's, Apache 2.0 Readability's), and of each GNU license one offers or states whose text
+# its library lacks (its GNU_TEXTS), and the license files of the projects whose code WebKit's own
+# files carry (its UPSTREAM_TEXTS), each at a pinned release.
+SPDX_RELEASE=v3.24.0
+SPDX_TEXTS="MPL-2.0 Apache-2.0 PSF-2.0 BSD-3-Clause GPL-2.0-only"
+for id in $SPDX_TEXTS; do
+  f="$SRC/spdx-$SPDX_RELEASE-$id.txt"
+  if [ ! -f "$f" ]; then
+    echo "download $id.txt" >&2
+    fetch "https://raw.githubusercontent.com/spdx/license-list-data/$SPDX_RELEASE/text/$id.txt" "$f" || exit 1
+  fi
+done
+V8_LICENSE_TAG=13.0.245.9
+f="$SRC/v8-$V8_LICENSE_TAG-LICENSE"
+if [ ! -f "$f" ]; then
+  echo "download V8 LICENSE" >&2
+  fetch "https://chromium.googlesource.com/v8/v8/+/refs/tags/$V8_LICENSE_TAG/LICENSE?format=TEXT" "$f.b64" || exit 1
+  /usr/bin/base64 -D -i "$f.b64" -o "$f" || exit 1
+  rm -f "$f.b64"
+fi
+DART_LICENSE_TAG=3.5.0
+f="$SRC/dart-$DART_LICENSE_TAG-LICENSE"
+if [ ! -f "$f" ]; then
+  echo "download Dart LICENSE" >&2
+  fetch "https://raw.githubusercontent.com/dart-lang/sdk/$DART_LICENSE_TAG/LICENSE" "$f" || exit 1
+fi
+GO_LICENSE_TAG=go1.23.0
+f="$SRC/go-$GO_LICENSE_TAG-LICENSE"
+if [ ! -f "$f" ]; then
+  echo "download Go LICENSE" >&2
+  fetch "https://raw.githubusercontent.com/golang/go/$GO_LICENSE_TAG/LICENSE" "$f" || exit 1
+fi
+echo "  spdx $SPDX_RELEASE ($SPDX_TEXTS), v8 $V8_LICENSE_TAG, dart $DART_LICENSE_TAG, go $GO_LICENSE_TAG"
 
 echo "==== undefined references ===="
 # Every undefined symbol in every deployed Mach-O must resolve on this 10.9 host, asked of the library

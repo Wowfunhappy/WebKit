@@ -48,11 +48,11 @@ echo "### compiling polyfills/c (every WebKit image)"
 CINC="$INC -I$REPO/AquaWebKitSupport/deps/build/include"
 for f in "$PF"/c/*.c "$PF"/c/*.m; do
     [ -e "$f" ] || continue
-    cc_queue "$CLANG" -c $MODERN $HIDDEN $CINC -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
+    cc_queue "$CLANG" -c -MD $MODERN $HIDDEN $CINC -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
 done
 for f in "$PF"/c/*.cpp; do
     [ -e "$f" ] || continue
-    cc_queue "$CLANGXX" -c $MODERN $HIDDEN $CINC -std=c++17 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
+    cc_queue "$CLANGXX" -c -MD $MODERN $HIDDEN $CINC -std=c++17 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
 done
 
 echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit builds)"
@@ -61,7 +61,7 @@ echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit b
 # #ifdef, which only this build defines, so those builds gain no dependency on the registry.
 SHAREDCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN -I$PF/shared/include"
 for f in "$PF"/shared/*.c; do
-    cc_queue "$CLANG" -c $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/shared/$(basename "${f%.c}").o" "$f"
+    cc_queue "$CLANG" -c -MD $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/shared/$(basename "${f%.c}").o" "$f"
 done
 
 # -I polyfills/c: a method block and a C function of the same framework share a helper header there
@@ -69,7 +69,7 @@ done
 # WebCore, so the definition is in the image the reference is.
 echo "### compiling polyfills/methods (WebCore)"
 for f in "$PF"/methods/*.m; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $(methods_unitinc "$f") -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c -MD $MODERN $BLOCKCF $(methods_unitinc "$f") -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/classes (one shared definition each)"
@@ -80,40 +80,40 @@ echo "### compiling polyfills/classes (one shared definition each)"
 # respond to" -- carries no flag of its own. Promoting the whole set is what makes it stop the build;
 # these units compile with no warnings today, so it costs nothing.
 for f in "$PF"/classes/*.m; do
-    cc_queue "$CLANG" -c $HOST -fobjc-weak -Werror $(classes_unitinc "$f") -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c -MD $HOST -fobjc-weak -Werror $(classes_unitinc "$f") -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
 for f in "$PF"/webkit/*.mm; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
+    cc_queue "$CLANG" -c -MD $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
 
 echo "### compiling polyfills/jsc (JavaScriptCore only)"
 for f in "$PF"/jsc/*.cpp; do
-    cc_queue "$CLANGXX" -c $MODERN -fblocks -std=c++17 -o "$OBJ/jsc/$(basename "${f%.cpp}").o" "$f"
+    cc_queue "$CLANGXX" -c -MD $MODERN -fblocks -std=c++17 -o "$OBJ/jsc/$(basename "${f%.cpp}").o" "$f"
 done
 for f in "$PF"/jsc/*.s; do
-    cc_queue "$CLANG" -c $HOST -o "$OBJ/jsc/$(basename "${f%.s}").o" "$f"
+    cc_queue "$CLANG" -c -MD $HOST -o "$OBJ/jsc/$(basename "${f%.s}").o" "$f"
 done
 
 echo "### compiling mechanism"
-cc_queue "$CLANG" -c $HOST $HIDDEN $INC -o "$OBJ/mech/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
-cc_queue "$CLANG" -c $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_selref_scope.o" "$MECH/wk_selref_scope.m"
-cc_queue "$CLANG" -c $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
+cc_queue "$CLANG" -c -MD $HOST $HIDDEN $INC -o "$OBJ/mech/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
+cc_queue "$CLANG" -c -MD $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_selref_scope.o" "$MECH/wk_selref_scope.m"
+cc_queue "$CLANG" -c -MD $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
 # Exported (no HIDDEN): another image binds to these. Every shared source, c/libSystem.m and the registry
 # runtime its macros need are compiled a second time, with the flags libpolyfill.a's copies take otherwise.
 for f in "$PF"/shared/*.c; do
-    cc_queue "$CLANG" -c $SHAREDCF -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/cdm/shared-$(basename "${f%.c}").o" "$f"
+    cc_queue "$CLANG" -c -MD $SHAREDCF -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/cdm/shared-$(basename "${f%.c}").o" "$f"
 done
-cc_queue "$CLANG" -c $MODERN $CINC -o "$OBJ/cdm/libSystem.o" "$PF/c/libSystem.m"
-cc_queue "$CLANG" -c $HOST $INC -o "$OBJ/cdm/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
+cc_queue "$CLANG" -c -MD $MODERN $CINC -o "$OBJ/cdm/libSystem.o" "$PF/c/libSystem.m"
+cc_queue "$CLANG" -c -MD $HOST $INC -o "$OBJ/cdm/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
 for f in "$PF"/cdm/*.c; do
-    cc_queue "$CLANG" -c $SHAREDCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
+    cc_queue "$CLANG" -c -MD $SHAREDCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done
 echo "### compiling the Widevine backend's private verification-path adapter"
-cc_queue "$CLANG" -c $SHAREDCF -o "$OBJ/widevine/WidevineHostPaths.o" \
+cc_queue "$CLANG" -c -MD $SHAREDCF -o "$OBJ/widevine/WidevineHostPaths.o" \
     "$REPO/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineHostPaths.c"
 cc_wait
 
@@ -130,6 +130,14 @@ ar_stable() {  # $1 = output .a, remaining args = object files
 tmp_stable() {  # $1 = final path; the builder already wrote "$1.tmp"
     if [ -f "$1" ] && cmp -s "$1" "$1.tmp"; then rm -f "$1.tmp"; else mv -f "$1.tmp" "$1"; fi
 }
+# sources/<product>.d: the depfiles of a product's objects, what scripts/generate-legal.py reads to
+# know what each product compiled.
+record_sources() {  # $1 = product, remaining args = its object files
+    local product="$1" o; shift
+    mkdir -p "$OUT/sources"
+    for o in "$@"; do cat "${o%.o}.d"; done > "$OUT/sources/$product.d.tmp"
+    tmp_stable "$OUT/sources/$product.d"
+}
 
 echo "### libpolyfill.a"
 # Some SDK headers put an explicit visibility("default") on their declarations (DISPATCH_EXPORT, OS_EXPORT),
@@ -140,6 +148,7 @@ echo "### libpolyfill.a"
 LIBPOLYFILL_MEMBERS=("$OBJ"/c/*.o "$OBJ/mech/wk_polyfill_runtime.o" "$OBJ"/shared/*.o)
 for o in "${LIBPOLYFILL_MEMBERS[@]}"; do "$CCTOOLS/nmedit" -p "$o"; done
 ar_stable "$OUT/libpolyfill.a" "${LIBPOLYFILL_MEMBERS[@]}"
+record_sources libpolyfill.a "${LIBPOLYFILL_MEMBERS[@]}"
 echo "### libpolyfill_classes.dylib"
 # The polyfilled classes have absent-on-10.9 SYSTEM names, which WebKit references with a two-level
 # binding to the framework that owns them in the build SDK. This one dylib defines every stub (each class
@@ -163,21 +172,26 @@ echo "### libpolyfill_classes.dylib"
     -Wl,-reexport_framework,CoreServices -Wl,-reexport_framework,CFNetwork \
     "$OBJ"/classes/*.o -o "$OUT/libpolyfill_classes.dylib.tmp"
 tmp_stable "$OUT/libpolyfill_classes.dylib"
+record_sources libpolyfill_classes.dylib "$OBJ"/classes/*.o
 
 echo "### libpolyfill_methods.a"
 # The selref-scope patcher plus the method polyfills, force-loaded into WebCore so they load early in every
 # rendering process and the AppKit categories stay off the setuid-JSC path.
 ar_stable "$OUT/libpolyfill_methods.a" "$OBJ/mech/wk_selref_scope.o" "$OBJ"/methods/*.o
+record_sources libpolyfill_methods.a "$OBJ/mech/wk_selref_scope.o" "$OBJ"/methods/*.o
 
 echo "### libpolyfill_webkit.a"
 # Archived apart from the WebCore archive so its ObjC classes register once, in WebKit.framework alone.
 ar_stable "$OUT/libpolyfill_webkit.a" "$OBJ"/webkit/*.o
+record_sources libpolyfill_webkit.a "$OBJ"/webkit/*.o
 
 echo "### libwk_marker.a"
 ar_stable "$OUT/libwk_marker.a" "$OBJ/mech/wk_image_marker.o"
+record_sources libwk_marker.a "$OBJ/mech/wk_image_marker.o"
 
 echo "### libwtf_compat.a"
 ar_stable "$OUT/libwtf_compat.a" "$OBJ"/jsc/*.o
+record_sources libwtf_compat.a "$OBJ"/jsc/*.o
 
 echo "### libwidevinegap.dylib"
 # Installed beside the downloaded module by WebCore's WidevineCdmInstaller, which is also what points
@@ -201,12 +215,14 @@ link_gap "$OBJ/libwidevinegap-registry.dylib" "$OBJ/cdm-unexported.txt" "$OBJ"/c
 "$CCTOOLS/nm" -gUj "$OBJ"/cdm/*.o | sort -u | "$OBJ/host-exports" "$OBJ/libwidevinegap-registry.dylib" > "$OBJ/cdm-unexported.txt"
 link_gap "$OUT/libwidevinegap.dylib.tmp" "$OBJ/cdm-unexported.txt" "$OBJ"/cdm/*.o "$OBJ"/widevine/*.o
 tmp_stable "$OUT/libwidevinegap.dylib"
+record_sources libwidevinegap.dylib "$OBJ"/cdm/*.o "$OBJ"/widevine/*.o
 
 echo "### pasteboard-expiration"
 # Built against 10.9's own AppKit: it uses nothing newer, so it needs no polyfill.
-"$CLANG" $HOST -Wl,-headerpad_max_install_names -o "$OUT/pasteboard-expiration.tmp" "$PF/helpers/pasteboard-expiration.m" \
-    -Wl,-force_load,"$OUT/libwk_marker.a" -framework AppKit
+"$CLANG" $HOST -MD -MF "$OBJ/pasteboard-expiration.d" -Wl,-headerpad_max_install_names -o "$OUT/pasteboard-expiration.tmp" \
+    "$PF/helpers/pasteboard-expiration.m" -Wl,-force_load,"$OUT/libwk_marker.a" -framework AppKit
 tmp_stable "$OUT/pasteboard-expiration"
+record_sources pasteboard-expiration "$OBJ/pasteboard-expiration.o" "$OBJ/mech/wk_image_marker.o"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

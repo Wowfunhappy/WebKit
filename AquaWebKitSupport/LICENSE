@@ -1,4 +1,4 @@
-Unless otherwise noted, the files in this directory, and the files Aqua WebKit adds elsewhere in this repository, are distributed under the terms of the BSD 2-Clause License below. The following exceptions apply:
+Unless otherwise noted, the files in Aqua WebKit's AquaWebKitSupport directory, and the other files Aqua WebKit adds to the WebKit source code, are distributed under the terms of the BSD 2-Clause License below. The following exceptions apply:
 
 - A file that carries its own copyright and license notice is distributed under the terms stated in that notice, as are Aqua WebKit's modifications to it.
 - A patch is distributed under the terms of the license of the code it modifies.

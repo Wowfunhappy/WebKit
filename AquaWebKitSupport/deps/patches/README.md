@@ -802,3 +802,20 @@ The player selects a text stream only while its track is showing or hidden, so p
 **Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the sparse text patch
 
 Backport from gst-plugins-good's main branch. The last byte of a decrypted fragment sized its PKCS7 padding unchecked, so a bad byte or an empty buffer could wrap the size given to `gst_buffer_resize`. A fragment with a padding byte of 0, or above the block size or the buffer, is rejected with a flow error, and this port also posts a decrypt error, or ends a text-only stream as a failed download does. Upstream's flow error alone stops the stream and leaves playback stalled with nothing reported.
+
+## dav1d-nasm-depfile.patch
+
+**Target:** dav1d 1.4.3, `meson.build`
+
+dav1d's nasm generator names a depfile with `-MF` and no `-M`, `-MG` or `-MD`, and nasm 2.16 writes
+dependencies only under one of those, so ninja records none for any assembly object and an edit to
+`x86inc.asm` or `config.asm` rebuilds nothing. `-MD` makes nasm assemble and write the depfile
+meson declares.
+
+## gst-plugins-good-deinterlace-nasm-depfile.patch
+
+**Target:** gst-plugins-good 1.28.7, `gst/deinterlace/meson.build`
+
+The deinterlace plug-in assembles `x86/yadif.asm` with no depfile, so ninja records nothing of the
+files it `%include`s. The generator declares one and passes nasm `-MQ`/`-MD` to write it.
+
